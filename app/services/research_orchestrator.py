@@ -4,7 +4,7 @@ import time
 
 from app.config import Settings
 from app.models.depth import ResearchDepth
-from app.services import elevenlabs_client
+from app.services import elevenlabs_client, gcs_client
 from app.agents.root_agent import execute_research
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,13 @@ def _handle_standard_upload(result, user_query, conversation_id, agent_id, setti
     )
     logger.info("Pipeline complete: doc=%s attached to agent=%s", doc_id, agent_id)
 
+    if settings.gcs_results_bucket:
+        url = gcs_client.publish_results(
+            result, user_query, "standard", conversation_id, settings.gcs_results_bucket
+        )
+        if url:
+            logger.info("Results page: %s", url)
+
 
 def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings):
     """Upload multiple documents for DEEP pipeline."""
@@ -166,6 +173,13 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
         len(all_docs),
         agent_id,
     )
+
+    if settings.gcs_results_bucket:
+        url = gcs_client.publish_results(
+            result, user_query, "deep", conversation_id, settings.gcs_results_bucket
+        )
+        if url:
+            logger.info("Results page: %s", url)
 
 
 def _upload_with_retry(text: str, name: str, api_key: str) -> str:

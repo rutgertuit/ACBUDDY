@@ -32,6 +32,7 @@ class Settings:
     deep_max_studies: int = 6
     deep_max_rounds: int = 3
     deep_max_concurrent_studies: int = 3
+    gcs_results_bucket: str = ""
 
     def __post_init__(self):
         self.environment = os.getenv("ENVIRONMENT", "local")
@@ -40,6 +41,7 @@ class Settings:
         self.deep_max_rounds = int(os.getenv("DEEP_MAX_ROUNDS", "3"))
         self.deep_max_concurrent_studies = int(os.getenv("DEEP_MAX_CONCURRENT_STUDIES", "3"))
         self.google_api_key = os.getenv("GOOGLE_API_KEY", "")
+        self.gcs_results_bucket = os.getenv("GCS_RESULTS_BUCKET", "")
 
         if self.environment == "local":
             self.elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY", "")
