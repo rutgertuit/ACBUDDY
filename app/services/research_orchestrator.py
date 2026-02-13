@@ -88,6 +88,7 @@ def _handle_standard_upload(result, user_query, conversation_id, agent_id, setti
     elevenlabs_client.attach_document_to_agent(
         agent_id=agent_id,
         doc_id=doc_id,
+        doc_name=doc_name,
         api_key=settings.elevenlabs_api_key,
     )
     logger.info("Pipeline complete: doc=%s attached to agent=%s", doc_id, agent_id)
@@ -95,7 +96,7 @@ def _handle_standard_upload(result, user_query, conversation_id, agent_id, setti
 
 def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings):
     """Upload multiple documents for DEEP pipeline."""
-    all_doc_ids = []
+    all_docs = {}  # {doc_id: doc_name}
     api_key = settings.elevenlabs_api_key
     query_short = user_query[:60]
     conv_short = conversation_id[:8]
@@ -109,7 +110,7 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
             doc_id = _upload_with_retry(text=study.synthesis, name=doc_name, api_key=api_key)
             if doc_id:
                 study.doc_id = doc_id
-                all_doc_ids.append(doc_id)
+                all_docs[doc_id] = doc_name
         except Exception:
             logger.exception("Failed to upload study: %s", study.title)
 
@@ -120,7 +121,7 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
             doc_id = _upload_with_retry(text=result.master_synthesis, name=doc_name, api_key=api_key)
             if doc_id:
                 result.master_doc_id = doc_id
-                all_doc_ids.append(doc_id)
+                all_docs[doc_id] = doc_name
         except Exception:
             logger.exception("Failed to upload master synthesis")
 
@@ -133,7 +134,7 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
             doc_id = _upload_with_retry(text=cluster.findings, name=doc_name, api_key=api_key)
             if doc_id:
                 cluster.doc_id = doc_id
-                all_doc_ids.append(doc_id)
+                all_docs[doc_id] = doc_name
         except Exception:
             logger.exception("Failed to upload Q&A cluster: %s", cluster.theme)
 
@@ -144,22 +145,22 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
             doc_id = _upload_with_retry(text=result.qa_summary, name=doc_name, api_key=api_key)
             if doc_id:
                 result.qa_summary_doc_id = doc_id
-                all_doc_ids.append(doc_id)
+                all_docs[doc_id] = doc_name
         except Exception:
             logger.exception("Failed to upload Q&A summary")
 
     # Batch attach all documents
-    if all_doc_ids:
+    if all_docs:
         try:
             elevenlabs_client.attach_documents_to_agent(
                 agent_id=agent_id,
-                doc_ids=all_doc_ids,
+                doc_map=all_docs,
                 api_key=api_key,
             )
         except Exception:
             logger.exception("Failed to batch attach documents to agent")
 
-    result.all_doc_ids = all_doc_ids
+    result.all_doc_ids = list(all_docs.keys())
     logger.info(
         "DEEP pipeline complete: %d documents uploaded and attached to agent %s",
         len(all_doc_ids),

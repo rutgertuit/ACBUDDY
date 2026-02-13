@@ -50,7 +50,7 @@ def upload_to_knowledge_base(text: str, name: str, api_key: str) -> str:
     return doc_id
 
 
-def attach_document_to_agent(agent_id: str, doc_id: str, api_key: str) -> None:
+def attach_document_to_agent(agent_id: str, doc_id: str, doc_name: str, api_key: str) -> None:
     """Attach a KB document to an agent using GET-then-PATCH to preserve existing docs."""
     headers = _headers(api_key)
 
@@ -73,7 +73,7 @@ def attach_document_to_agent(agent_id: str, doc_id: str, api_key: str) -> None:
         return
 
     # Append new document
-    existing_kb.append({"type": "text", "id": doc_id})
+    existing_kb.append({"type": "text", "id": doc_id, "name": doc_name})
 
     # PATCH agent with updated knowledge base
     patch_url = f"{BASE_URL}/convai/agents/{agent_id}"
@@ -91,9 +91,15 @@ def attach_document_to_agent(agent_id: str, doc_id: str, api_key: str) -> None:
     logger.info("Attached document %s to agent %s", doc_id, agent_id)
 
 
-def attach_documents_to_agent(agent_id: str, doc_ids: list[str], api_key: str) -> None:
-    """Attach multiple KB documents to an agent in a single GET + PATCH."""
-    if not doc_ids:
+def attach_documents_to_agent(agent_id: str, doc_map: dict[str, str], api_key: str) -> None:
+    """Attach multiple KB documents to an agent in a single GET + PATCH.
+
+    Args:
+        agent_id: ElevenLabs agent ID.
+        doc_map: Mapping of document ID to document name.
+        api_key: ElevenLabs API key.
+    """
+    if not doc_map:
         return
 
     headers = _headers(api_key)
@@ -109,10 +115,10 @@ def attach_documents_to_agent(agent_id: str, doc_ids: list[str], api_key: str) -
     existing_kb = prompt_section.get("knowledge_base", [])
 
     existing_ids = {doc.get("id", doc.get("document_id", "")) for doc in existing_kb}
-    new_docs = [{"type": "text", "id": did} for did in doc_ids if did not in existing_ids]
+    new_docs = [{"type": "text", "id": did, "name": dname} for did, dname in doc_map.items() if did not in existing_ids]
 
     if not new_docs:
-        logger.info("All %d documents already attached to agent %s", len(doc_ids), agent_id)
+        logger.info("All %d documents already attached to agent %s", len(doc_map), agent_id)
         return
 
     existing_kb.extend(new_docs)
