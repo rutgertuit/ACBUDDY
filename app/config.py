@@ -51,8 +51,13 @@ class Settings:
                 raise ValueError("GOOGLE_CLOUD_PROJECT must be set in production")
             try:
                 self.elevenlabs_api_key = _get_secret(project, "elevenlabs-api-key")
-                self.elevenlabs_webhook_secret = _get_secret(project, "elevenlabs-webhook-secret")
                 self.elevenlabs_agent_id = _get_secret(project, "elevenlabs-agent-id")
             except Exception:
                 logger.exception("Failed to load secrets from Secret Manager")
                 raise
+            try:
+                secret = _get_secret(project, "elevenlabs-webhook-secret")
+                if secret and secret != "placeholder":
+                    self.elevenlabs_webhook_secret = secret
+            except Exception:
+                logger.warning("No webhook secret configured, signature verification disabled")
