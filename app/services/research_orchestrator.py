@@ -3,13 +3,14 @@ import logging
 import time
 
 from app.config import Settings
+from app.models.depth import ResearchDepth
 from app.services import elevenlabs_client
 from app.agents.root_agent import execute_research
 
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
-INITIAL_BACKOFF = 2  # seconds
+INITIAL_BACKOFF = 2
 
 
 def run_research_pipeline(
@@ -17,19 +18,16 @@ def run_research_pipeline(
     agent_id: str,
     user_query: str,
     settings: Settings,
+    depth: ResearchDepth = ResearchDepth.STANDARD,
 ) -> None:
     """Run the full research pipeline in a background thread.
-
-    1. Fetch conversation context from ElevenLabs
-    2. Execute ADK research pipeline
-    3. Upload result to ElevenLabs Knowledge Base
-    4. Attach document to agent
 
     All exceptions are caught and logged (no re-raise in background thread).
     """
     try:
         logger.info(
-            "Starting research pipeline: conversation=%s query=%s",
+            "Starting %s research pipeline: conversation=%s query=%s",
+            depth.value,
             conversation_id,
             user_query[:100],
         )
@@ -49,48 +47,124 @@ def run_research_pipeline(
             )
 
         # 2. Execute ADK research pipeline
-        result = asyncio.run(execute_research(query=user_query, context=context))
+        result = asyncio.run(execute_research(query=user_query, context=context, depth=depth))
 
-        if not result.final_synthesis:
-            logger.error("Research pipeline produced empty synthesis")
-            return
-
-        logger.info(
-            "Research complete: %d questions, %d findings, %d follow-ups, synthesis=%d chars",
-            len(result.unpacked_questions),
-            len(result.research_findings),
-            len(result.follow_up_findings),
-            len(result.final_synthesis),
-        )
-
-        # 3. Upload to Knowledge Base with retry
-        doc_name = f"Research: {user_query[:80]} ({conversation_id[:8]})"
-        doc_id = _upload_with_retry(
-            text=result.final_synthesis,
-            name=doc_name,
-            api_key=settings.elevenlabs_api_key,
-        )
-
-        if not doc_id:
-            logger.error("Failed to upload research to KB after retries")
-            return
-
-        # 4. Attach document to agent
-        elevenlabs_client.attach_document_to_agent(
-            agent_id=agent_id,
-            doc_id=doc_id,
-            api_key=settings.elevenlabs_api_key,
-        )
-        logger.info(
-            "Research pipeline complete: doc=%s attached to agent=%s",
-            doc_id,
-            agent_id,
-        )
+        # 3. Upload and attach based on depth
+        if depth == ResearchDepth.DEEP:
+            _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
+        else:
+            _handle_standard_upload(result, user_query, conversation_id, agent_id, settings)
 
     except Exception:
         logger.exception(
             "Research pipeline failed for conversation %s", conversation_id
         )
+
+
+def _handle_standard_upload(result, user_query, conversation_id, agent_id, settings):
+    """Upload single document for QUICK/STANDARD pipelines."""
+    if not result.final_synthesis:
+        logger.error("Research pipeline produced empty synthesis")
+        return
+
+    logger.info(
+        "Research complete: %d questions, %d findings, synthesis=%d chars",
+        len(result.unpacked_questions),
+        len(result.research_findings),
+        len(result.final_synthesis),
+    )
+
+    doc_name = f"Research: {user_query[:80]} ({conversation_id[:8]})"
+    doc_id = _upload_with_retry(
+        text=result.final_synthesis,
+        name=doc_name,
+        api_key=settings.elevenlabs_api_key,
+    )
+
+    if not doc_id:
+        logger.error("Failed to upload research to KB after retries")
+        return
+
+    elevenlabs_client.attach_document_to_agent(
+        agent_id=agent_id,
+        doc_id=doc_id,
+        api_key=settings.elevenlabs_api_key,
+    )
+    logger.info("Pipeline complete: doc=%s attached to agent=%s", doc_id, agent_id)
+
+
+def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings):
+    """Upload multiple documents for DEEP pipeline."""
+    all_doc_ids = []
+    api_key = settings.elevenlabs_api_key
+    query_short = user_query[:60]
+    conv_short = conversation_id[:8]
+
+    # Per-study documents
+    for study in result.studies:
+        if not study.synthesis:
+            continue
+        doc_name = f"Study: {study.title[:60]} - {query_short} ({conv_short})"
+        try:
+            doc_id = _upload_with_retry(text=study.synthesis, name=doc_name, api_key=api_key)
+            if doc_id:
+                study.doc_id = doc_id
+                all_doc_ids.append(doc_id)
+        except Exception:
+            logger.exception("Failed to upload study: %s", study.title)
+
+    # Master synthesis
+    if result.master_synthesis:
+        doc_name = f"Master Briefing: {query_short} ({conv_short})"
+        try:
+            doc_id = _upload_with_retry(text=result.master_synthesis, name=doc_name, api_key=api_key)
+            if doc_id:
+                result.master_doc_id = doc_id
+                all_doc_ids.append(doc_id)
+        except Exception:
+            logger.exception("Failed to upload master synthesis")
+
+    # Q&A cluster documents
+    for cluster in result.qa_clusters:
+        if not cluster.findings:
+            continue
+        doc_name = f"Q&A: {cluster.theme[:60]} - {query_short} ({conv_short})"
+        try:
+            doc_id = _upload_with_retry(text=cluster.findings, name=doc_name, api_key=api_key)
+            if doc_id:
+                cluster.doc_id = doc_id
+                all_doc_ids.append(doc_id)
+        except Exception:
+            logger.exception("Failed to upload Q&A cluster: %s", cluster.theme)
+
+    # Q&A summary
+    if result.qa_summary:
+        doc_name = f"Anticipated Q&A: {query_short} ({conv_short})"
+        try:
+            doc_id = _upload_with_retry(text=result.qa_summary, name=doc_name, api_key=api_key)
+            if doc_id:
+                result.qa_summary_doc_id = doc_id
+                all_doc_ids.append(doc_id)
+        except Exception:
+            logger.exception("Failed to upload Q&A summary")
+
+    # Batch attach all documents
+    if all_doc_ids:
+        try:
+            elevenlabs_client.attach_documents_to_agent(
+                agent_id=agent_id,
+                doc_ids=all_doc_ids,
+                api_key=api_key,
+            )
+        except Exception:
+            logger.exception("Failed to batch attach documents to agent")
+
+    result.all_doc_ids = all_doc_ids
+    logger.info(
+        "DEEP pipeline complete: %d documents uploaded and attached to agent %s",
+        len(all_doc_ids),
+        agent_id,
+    )
 
 
 def _upload_with_retry(text: str, name: str, api_key: str) -> str:

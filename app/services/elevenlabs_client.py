@@ -89,3 +89,44 @@ def attach_document_to_agent(agent_id: str, doc_id: str, api_key: str) -> None:
     resp = requests.patch(patch_url, headers=headers, json=patch_payload, timeout=30)
     resp.raise_for_status()
     logger.info("Attached document %s to agent %s", doc_id, agent_id)
+
+
+def attach_documents_to_agent(agent_id: str, doc_ids: list[str], api_key: str) -> None:
+    """Attach multiple KB documents to an agent in a single GET + PATCH."""
+    if not doc_ids:
+        return
+
+    headers = _headers(api_key)
+
+    get_url = f"{BASE_URL}/convai/agents/{agent_id}"
+    resp = requests.get(get_url, headers=headers, timeout=30)
+    resp.raise_for_status()
+    agent_config = resp.json()
+
+    convai_config = agent_config.get("conversation_config", {})
+    agent_section = convai_config.get("agent", {})
+    prompt_section = agent_section.get("prompt", {})
+    existing_kb = prompt_section.get("knowledge_base", [])
+
+    existing_ids = {doc.get("id", doc.get("document_id", "")) for doc in existing_kb}
+    new_docs = [{"type": "text", "id": did} for did in doc_ids if did not in existing_ids]
+
+    if not new_docs:
+        logger.info("All %d documents already attached to agent %s", len(doc_ids), agent_id)
+        return
+
+    existing_kb.extend(new_docs)
+
+    patch_url = f"{BASE_URL}/convai/agents/{agent_id}"
+    patch_payload = {
+        "conversation_config": {
+            "agent": {
+                "prompt": {
+                    "knowledge_base": existing_kb,
+                }
+            }
+        }
+    }
+    resp = requests.patch(patch_url, headers=headers, json=patch_payload, timeout=30)
+    resp.raise_for_status()
+    logger.info("Attached %d new documents to agent %s (total KB: %d)", len(new_docs), agent_id, len(existing_kb))

@@ -5,11 +5,14 @@ from typing import Optional
 from google.adk.agents import ParallelAgent, SequentialAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
+from google.genai import types
 
+from app.agents.json_utils import parse_json_response
 from app.agents.question_unpacker import build_question_unpacker
 from app.agents.deep_research import build_researcher
 from app.agents.follow_up_handler import build_follow_up_identifier
 from app.agents.synthesizer import build_synthesizer
+from app.models.depth import ResearchDepth
 from app.models.research_result import ResearchResult
 
 logger = logging.getLogger(__name__)
@@ -18,20 +21,23 @@ MODEL = "gemini-2.0-flash"
 APP_NAME = "acbuddy_research"
 
 
-async def execute_research(query: str, context: str = "") -> ResearchResult:
-    """Execute the two-phase dynamic research pipeline.
+async def execute_research(
+    query: str, context: str = "", depth: ResearchDepth = ResearchDepth.STANDARD
+) -> ResearchResult:
+    """Execute research pipeline at the specified depth.
 
-    Phase 1: Run question_unpacker standalone to decompose the query.
-    Phase 2: Build dynamic parallel agents based on unpacker output,
-             run follow-up identification, optional follow-up research, and synthesis.
-
-    Args:
-        query: The user's research query.
-        context: Optional conversation context.
-
-    Returns:
-        ResearchResult with all findings.
+    QUICK: Single researcher, no follow-ups.
+    STANDARD: Sub-questions → parallel research → follow-ups → synthesis.
+    DEEP: Multi-study iterative pipeline (delegated to deep_pipeline).
     """
+    if depth == ResearchDepth.DEEP:
+        from app.agents.deep_pipeline import execute_deep_research
+        return await execute_deep_research(query=query, context=context)
+
+    if depth == ResearchDepth.QUICK:
+        return await _execute_quick_research(query=query, context=context)
+
+    # ---- STANDARD pipeline ----
     result = ResearchResult(original_query=query)
     session_service = InMemorySessionService()
 
@@ -47,11 +53,9 @@ async def execute_research(query: str, context: str = "") -> ResearchResult:
     if context:
         prompt = f"Conversation context:\n{context}\n\nResearch query: {query}"
 
-    session = await session_service.create_session(
+    session = session_service.create_session(
         app_name=APP_NAME, user_id="system"
     )
-
-    from google.genai import types
 
     content = types.Content(
         role="user", parts=[types.Part(text=prompt)]
@@ -65,12 +69,9 @@ async def execute_research(query: str, context: str = "") -> ResearchResult:
             unpacked_text = event.content.parts[0].text
             break
 
-    # Parse sub-questions from JSON
-    try:
-        sub_questions = json.loads(unpacked_text)
-        if not isinstance(sub_questions, list):
-            sub_questions = [query]
-    except (json.JSONDecodeError, TypeError):
+    # Parse sub-questions from JSON (robust: handles markdown fences)
+    sub_questions = parse_json_response(unpacked_text)
+    if not isinstance(sub_questions, list) or not sub_questions:
         logger.warning("Failed to parse unpacker output, using original query")
         sub_questions = [query]
 
@@ -115,7 +116,7 @@ async def execute_research(query: str, context: str = "") -> ResearchResult:
     for i, q in enumerate(sub_questions):
         initial_state[f"research_question_{i}"] = q
 
-    session2 = await session_service.create_session(
+    session2 = session_service.create_session(
         app_name=APP_NAME, user_id="system", state=initial_state
     )
 
@@ -135,7 +136,7 @@ async def execute_research(query: str, context: str = "") -> ResearchResult:
             follow_up_text = event.content.parts[0].text
 
     # Collect research findings from session state
-    session2 = await session_service.get_session(
+    session2 = session_service.get_session(
         app_name=APP_NAME, user_id="system", session_id=session2.id
     )
     state = session2.state if session2 else {}
@@ -179,7 +180,7 @@ async def execute_research(query: str, context: str = "") -> ResearchResult:
         )
 
         # Carry forward state from phase 2
-        session3 = await session_service.create_session(
+        session3 = session_service.create_session(
             app_name=APP_NAME, user_id="system", state=dict(state)
         )
 
@@ -195,7 +196,7 @@ async def execute_research(query: str, context: str = "") -> ResearchResult:
         ):
             pass  # Just run to completion
 
-        session3 = await session_service.get_session(
+        session3 = session_service.get_session(
             app_name=APP_NAME, user_id="system", session_id=session3.id
         )
         if session3:
@@ -214,7 +215,7 @@ async def execute_research(query: str, context: str = "") -> ResearchResult:
         session_service=session_service,
     )
 
-    session4 = await session_service.create_session(
+    session4 = session_service.create_session(
         app_name=APP_NAME, user_id="system", state=dict(state)
     )
 
@@ -231,11 +232,64 @@ async def execute_research(query: str, context: str = "") -> ResearchResult:
 
     # Fallback: check session state for synthesis
     if not result.final_synthesis:
-        session4 = await session_service.get_session(
+        session4 = session_service.get_session(
             app_name=APP_NAME, user_id="system", session_id=session4.id
         )
         if session4 and "final_synthesis" in session4.state:
             result.final_synthesis = session4.state["final_synthesis"]
 
-    logger.info("Research pipeline complete. Synthesis length: %d chars", len(result.final_synthesis))
+    logger.info("STANDARD pipeline complete. Synthesis length: %d chars", len(result.final_synthesis))
+    return result
+
+
+async def _execute_quick_research(query: str, context: str = "") -> ResearchResult:
+    """Single researcher, no unpacking, no follow-ups, simple synthesis."""
+    result = ResearchResult(original_query=query)
+    session_service = InMemorySessionService()
+
+    researcher = build_researcher(0, model=MODEL, prefix="research")
+    runner = Runner(agent=researcher, app_name=APP_NAME, session_service=session_service)
+
+    prompt = f"Research query: {query}"
+    if context:
+        prompt = f"Context:\n{context}\n\n{prompt}"
+
+    session = session_service.create_session(app_name=APP_NAME, user_id="system")
+    content = types.Content(role="user", parts=[types.Part(text=prompt)])
+
+    async for event in runner.run_async(
+        user_id="system", session_id=session.id, new_message=content
+    ):
+        if event.is_final_response() and event.content and event.content.parts:
+            result.research_findings["research_0"] = event.content.parts[0].text
+
+    # Quick synthesis
+    session = session_service.get_session(
+        app_name=APP_NAME, user_id="system", session_id=session.id
+    )
+    state = session.state if session else {}
+
+    synth_agent = build_synthesizer(1, 0, model=MODEL)
+    synth_runner = Runner(agent=synth_agent, app_name=APP_NAME, session_service=session_service)
+    synth_session = session_service.create_session(
+        app_name=APP_NAME, user_id="system", state=dict(state)
+    )
+    synth_content = types.Content(
+        role="user", parts=[types.Part(text=f"Synthesize research for: {query}")]
+    )
+
+    async for event in synth_runner.run_async(
+        user_id="system", session_id=synth_session.id, new_message=synth_content
+    ):
+        if event.is_final_response() and event.content and event.content.parts:
+            result.final_synthesis = event.content.parts[0].text
+
+    if not result.final_synthesis:
+        synth_session = session_service.get_session(
+            app_name=APP_NAME, user_id="system", session_id=synth_session.id
+        )
+        if synth_session and "final_synthesis" in synth_session.state:
+            result.final_synthesis = synth_session.state["final_synthesis"]
+
+    logger.info("QUICK pipeline complete. Synthesis length: %d chars", len(result.final_synthesis))
     return result

@@ -4,6 +4,7 @@ import logging
 
 from flask import Blueprint, request, jsonify, current_app
 
+from app.models.depth import detect_depth
 from app.models.webhook_payload import WebhookPayload
 from app.services.research_orchestrator import run_research_pipeline
 
@@ -67,17 +68,21 @@ def elevenlabs_webhook():
         payload.conversation_id,
     )
 
-    # Check for research trigger
-    user_text = payload.extract_user_messages().lower()
-    if "research" not in user_text:
+    # Detect depth and check for research trigger
+    user_messages = payload.extract_user_messages()
+    depth = detect_depth(user_messages)
+
+    TRIGGER_KEYWORDS = ["research", "deep dive", "comprehensive", "in-depth", "thorough analysis", "detailed research"]
+    user_lower = user_messages.lower()
+    if not any(kw in user_lower for kw in TRIGGER_KEYWORDS):
         logger.info("No research trigger found, skipping")
         return jsonify({"status": "skipped", "reason": "no research trigger"}), 200
+    logger.info(
+        "Research trigger detected (depth=%s), submitting pipeline for conversation %s",
+        depth.value,
+        payload.conversation_id,
+    )
 
-    # Extract the research query (text after "research" keyword)
-    user_messages = payload.extract_user_messages()
-    logger.info("Research trigger detected, submitting pipeline for conversation %s", payload.conversation_id)
-
-    # Submit to background thread
     agent_id = payload.agent_id or settings.elevenlabs_agent_id
     executor.submit(
         run_research_pipeline,
@@ -85,6 +90,7 @@ def elevenlabs_webhook():
         agent_id=agent_id,
         user_query=user_messages,
         settings=settings,
+        depth=depth,
     )
 
-    return jsonify({"status": "accepted", "conversation_id": payload.conversation_id}), 200
+    return jsonify({"status": "accepted", "depth": depth.value, "conversation_id": payload.conversation_id}), 200
