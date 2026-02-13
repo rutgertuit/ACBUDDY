@@ -108,6 +108,10 @@ async def run_iterative_study(
             key = f"study_{study_index}_round_{round_idx}_researcher_{j}"
             if key in state:
                 round_findings[key] = state[key]
+            else:
+                # Ensure key exists so gap analyzer template doesn't crash
+                state[key] = "No research findings available for this question."
+                logger.warning("Researcher %s did not produce output", key)
         result.rounds.append(round_findings)
 
         # Gap analysis (skip on last round)
