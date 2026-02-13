@@ -163,7 +163,7 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
     result.all_doc_ids = list(all_docs.keys())
     logger.info(
         "DEEP pipeline complete: %d documents uploaded and attached to agent %s",
-        len(all_doc_ids),
+        len(all_docs),
         agent_id,
     )
 

@@ -26,7 +26,6 @@ def _verify_hmac(payload_body: bytes, signature: str, secret: str) -> bool:
 @webhook_bp.route("/webhook/elevenlabs", methods=["POST"])
 def elevenlabs_webhook():
     settings = current_app.config["SETTINGS"]
-    executor = current_app.config["EXECUTOR"]
 
     # HMAC verification
     raw_body = request.get_data()
@@ -84,8 +83,10 @@ def elevenlabs_webhook():
     )
 
     agent_id = payload.agent_id or settings.elevenlabs_agent_id
-    executor.submit(
-        run_research_pipeline,
+
+    # Run pipeline synchronously to keep Cloud Run instance alive.
+    # Background threads get killed when the instance scales down.
+    run_research_pipeline(
         conversation_id=payload.conversation_id,
         agent_id=agent_id,
         user_query=user_messages,
@@ -93,4 +94,4 @@ def elevenlabs_webhook():
         depth=depth,
     )
 
-    return jsonify({"status": "accepted", "depth": depth.value, "conversation_id": payload.conversation_id}), 200
+    return jsonify({"status": "completed", "depth": depth.value, "conversation_id": payload.conversation_id}), 200

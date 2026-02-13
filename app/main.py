@@ -1,6 +1,5 @@
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask
 
@@ -17,10 +16,6 @@ def create_app() -> Flask:
     # Load settings
     settings = Settings()
     app.config["SETTINGS"] = settings
-
-    # Thread pool for background research tasks
-    executor = ThreadPoolExecutor(max_workers=4)
-    app.config["EXECUTOR"] = executor
 
     # Register blueprints
     from app.routes.health import health_bp
