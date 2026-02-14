@@ -94,6 +94,12 @@ li { margin-bottom: 0.3rem; }
 strong { color: #111827; }
 .study { background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.2rem 1.5rem; margin-bottom: 1.2rem; }
 .cluster { background: #f0f9ff; border-left: 4px solid #3b82f6; padding: 1rem 1.2rem; margin-bottom: 1rem; border-radius: 0 6px 6px 0; }
+.quality-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 1.2rem 1.5rem; margin-bottom: 1.5rem; }
+.quality-card h3 { color: #166534; margin-bottom: 0.6rem; }
+.score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.8rem; margin: 0.8rem 0; }
+.score-item { background: #fff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 0.6rem 0.8rem; }
+.score-item .label { font-size: 0.85rem; color: #6b7280; text-transform: capitalize; }
+.score-item .value { font-size: 1.3rem; font-weight: 600; color: #1e40af; }
 """
 
 
@@ -114,6 +120,29 @@ def generate_html(result: ResearchResult, query: str, depth: str) -> str:
 
     # DEEP pipeline sections
     if depth.upper() == "DEEP":
+        # Quality scores (if refinement loop ran)
+        if result.synthesis_score > 0:
+            score_items = ""
+            for dim, val in result.synthesis_scores.items():
+                score_items += (
+                    f'<div class="score-item"><div class="label">{html.escape(dim)}</div>'
+                    f'<div class="value">{val}/10</div></div>'
+                )
+            refinement_note = ""
+            if result.refinement_rounds > 0:
+                refinement_note = (
+                    f"<p>Refined through {result.refinement_rounds} evaluation "
+                    f"{'round' if result.refinement_rounds == 1 else 'rounds'} "
+                    f"to address identified gaps and strengthen evidence.</p>"
+                )
+            sections.append(
+                f'<section id="quality"><div class="quality-card">'
+                f"<h3>Synthesis Quality: {result.synthesis_score:.1f}/10</h3>"
+                f'{refinement_note}'
+                f'<div class="score-grid">{score_items}</div>'
+                f"</div></section>"
+            )
+
         # Master synthesis
         if result.master_synthesis:
             sections.append(
@@ -312,6 +341,8 @@ def publish_results_with_metadata(
         "result_url": result_url,
         "num_studies": num_studies,
         "elevenlabs_doc_id": elevenlabs_doc_id,
+        "synthesis_score": result.synthesis_score,
+        "refinement_rounds": result.refinement_rounds,
     }
     upload_metadata(metadata, job_id, bucket_name)
     return result_url

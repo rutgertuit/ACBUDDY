@@ -39,3 +39,8 @@ class ResearchResult:
     qa_summary: str = ""
     qa_summary_doc_id: str = ""
     all_doc_ids: list[str] = field(default_factory=list)
+
+    # Synthesis quality (populated by synthesis evaluator)
+    synthesis_score: float = 0.0
+    synthesis_scores: dict = field(default_factory=dict)
+    refinement_rounds: int = 0

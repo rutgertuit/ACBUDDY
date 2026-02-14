@@ -191,6 +191,16 @@ def _build_consolidated_text(result, query: str, depth: str) -> str:
     parts = [f"Research Briefing: {query}", f"Depth: {depth.upper()}", ""]
 
     if depth.upper() == "DEEP":
+        # Include quality scores if available
+        if result.synthesis_score > 0:
+            parts.append(f"Synthesis Quality Score: {result.synthesis_score:.1f}/10")
+            if result.synthesis_scores:
+                score_parts = ", ".join(f"{k}: {v}/10" for k, v in result.synthesis_scores.items())
+                parts.append(f"Dimension Scores: {score_parts}")
+            if result.refinement_rounds > 0:
+                parts.append(f"Refinement Rounds: {result.refinement_rounds}")
+            parts.append("")
+
         if result.master_synthesis:
             parts.append("=== EXECUTIVE SUMMARY ===")
             parts.append(result.master_synthesis)

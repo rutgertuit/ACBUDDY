@@ -12,6 +12,7 @@ from app.agents.study_planner import build_study_planner
 from app.agents.iterative_researcher import run_iterative_study
 from app.agents.deep_research import build_researcher
 from app.agents.qa_anticipator import build_qa_anticipator
+from app.agents.synthesis_evaluator import evaluate_synthesis
 from app.models.research_result import ResearchResult, StudyResult, QAClusterResult
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,237 @@ Be comprehensive, cite sources, highlight cross-study patterns."""
             result.master_synthesis = master_session.state["master_synthesis"]
 
     logger.info("DEEP Phase 4 complete: master synthesis %d chars", len(result.master_synthesis))
+
+    # ---- Phase 4b: Synthesis Evaluation & Refinement ----
+    if result.master_synthesis:
+        max_refinement_rounds = 2
+        for refine_round in range(max_refinement_rounds):
+            logger.info("DEEP Phase 4b: Evaluating synthesis (round %d)", refine_round + 1)
+
+            evaluation = await evaluate_synthesis(
+                query=query,
+                master_synthesis=result.master_synthesis,
+                model=MODEL,
+            )
+            result.synthesis_score = evaluation.get("overall_score", 0.0)
+            result.synthesis_scores = evaluation.get("scores", {})
+            result.refinement_rounds = refine_round + 1
+
+            if not evaluation.get("refinement_needed", False):
+                logger.info(
+                    "Synthesis scored %.1f — no refinement needed",
+                    result.synthesis_score,
+                )
+                break
+
+            # Extract high/medium priority gap questions
+            gaps = evaluation.get("gaps", [])
+            gap_questions = [
+                g["research_question"]
+                for g in gaps
+                if g.get("research_question") and g.get("priority") in ("high", "medium")
+            ]
+            if not gap_questions:
+                logger.info("No actionable gap questions, skipping refinement")
+                break
+
+            gap_questions = gap_questions[:4]  # Cap at 4 gap questions
+            logger.info(
+                "Synthesis scored %.1f — refining with %d gap questions: %s",
+                result.synthesis_score,
+                len(gap_questions),
+                [q[:60] for q in gap_questions],
+            )
+
+            # Research the gaps using parallel researchers
+            gap_sem = asyncio.Semaphore(MAX_CONCURRENT_STUDIES)
+
+            async def _research_gap(idx, question):
+                async with gap_sem:
+                    try:
+                        gap_svc = InMemorySessionService()
+                        researcher = build_researcher(
+                            idx, model=MODEL, prefix=f"gap_r{refine_round}"
+                        )
+                        runner = Runner(
+                            agent=researcher,
+                            app_name=APP_NAME,
+                            session_service=gap_svc,
+                        )
+                        sess = gap_svc.create_session(
+                            app_name=APP_NAME, user_id="system"
+                        )
+                        msg = types.Content(
+                            role="user",
+                            parts=[types.Part(text=question)],
+                        )
+                        result_text = ""
+                        async for event in runner.run_async(
+                            user_id="system",
+                            session_id=sess.id,
+                            new_message=msg,
+                        ):
+                            if (
+                                event.is_final_response()
+                                and event.content
+                                and event.content.parts
+                            ):
+                                result_text = event.content.parts[0].text
+
+                        if not result_text:
+                            sess = gap_svc.get_session(
+                                app_name=APP_NAME,
+                                user_id="system",
+                                session_id=sess.id,
+                            )
+                            if sess:
+                                key = f"gap_r{refine_round}_researcher_{idx}"
+                                result_text = sess.state.get(key, "")
+
+                        return result_text
+                    except Exception:
+                        logger.exception("Gap research %d failed: %s", idx, question[:60])
+                        return ""
+
+            gap_tasks = [_research_gap(i, q) for i, q in enumerate(gap_questions)]
+            gap_findings = await asyncio.gather(*gap_tasks)
+            gap_findings = [f for f in gap_findings if f]
+
+            if not gap_findings:
+                logger.warning("All gap research failed, keeping original synthesis")
+                break
+
+            # Regenerate master synthesis with original studies + gap findings
+            logger.info(
+                "Refining synthesis with %d gap findings (%d chars total)",
+                len(gap_findings),
+                sum(len(f) for f in gap_findings),
+            )
+
+            gap_refs = "\n".join(
+                f"- Gap finding {i+1}: {{gap_finding_{i}}}"
+                for i in range(len(gap_findings))
+            )
+            weak_claims_note = ""
+            weak = evaluation.get("weak_claims", [])
+            if weak:
+                weak_claims_note = (
+                    "\n\nThe following claims in the previous synthesis were flagged as weak "
+                    "and need stronger evidence:\n"
+                    + "\n".join(f"- {w}" for w in weak[:5])
+                )
+
+            missing_note = ""
+            missing = evaluation.get("missing_perspectives", [])
+            if missing:
+                missing_note = (
+                    "\n\nThe following perspectives were missing and should be addressed "
+                    "if the gap research provides relevant information:\n"
+                    + "\n".join(f"- {m}" for m in missing[:5])
+                )
+
+            refine_instruction = f"""You are an executive research synthesizer producing a REFINED
+second draft of a research briefing. You have:
+
+1. The original study syntheses (same as before)
+2. NEW gap research findings that address identified weaknesses
+3. Feedback on weak claims and missing perspectives
+
+Original study syntheses:
+{study_refs}
+
+New gap research findings:
+{gap_refs}
+{weak_claims_note}
+{missing_note}
+
+Produce an improved executive briefing that:
+- Incorporates the new gap findings to fill coverage holes
+- Strengthens or removes claims that lacked evidence
+- Includes any newly discovered perspectives
+- Maintains all well-supported content from the original synthesis
+
+Format as:
+
+# Executive Research Briefing: {query}
+
+## Executive Summary
+(3-5 paragraph high-level overview synthesizing ALL evidence including gap fills)
+
+## Study Summaries
+(Brief summary of each study's key findings)
+
+## Cross-Study Analysis
+(Patterns, contradictions, and connections — enhanced with gap findings)
+
+## Key Findings & Recommendations
+(Top 10 actionable findings with supporting evidence)
+
+## Sources
+(Consolidated list of ALL sources — original + gap research)
+
+## Confidence Assessment
+(Overall confidence: High/Medium/Low with justification per area)
+
+Be comprehensive. Mark any remaining areas of uncertainty explicitly."""
+
+            refine_agent = LlmAgent(
+                name="master_synthesizer_refine",
+                model=MODEL,
+                instruction=refine_instruction,
+                output_key="master_synthesis_refined",
+            )
+            refine_runner = Runner(
+                agent=refine_agent,
+                app_name=APP_NAME,
+                session_service=session_service,
+            )
+
+            refine_state = dict(master_state)  # original study syntheses
+            for i, gf in enumerate(gap_findings):
+                refine_state[f"gap_finding_{i}"] = gf
+
+            refine_session = session_service.create_session(
+                app_name=APP_NAME, user_id="system", state=refine_state
+            )
+            refine_content = types.Content(
+                role="user",
+                parts=[types.Part(
+                    text=f"Create a refined executive briefing for: {query}"
+                )],
+            )
+
+            refined_text = ""
+            async for event in refine_runner.run_async(
+                user_id="system",
+                session_id=refine_session.id,
+                new_message=refine_content,
+            ):
+                if event.is_final_response() and event.content and event.content.parts:
+                    refined_text = event.content.parts[0].text
+
+            if not refined_text:
+                refine_session = session_service.get_session(
+                    app_name=APP_NAME,
+                    user_id="system",
+                    session_id=refine_session.id,
+                )
+                if refine_session:
+                    refined_text = refine_session.state.get(
+                        "master_synthesis_refined", ""
+                    )
+
+            if refined_text:
+                result.master_synthesis = refined_text
+                logger.info(
+                    "Refinement round %d complete: %d chars (was %d)",
+                    refine_round + 1,
+                    len(refined_text),
+                    len(result.master_synthesis),
+                )
+            else:
+                logger.warning("Refinement produced empty result, keeping previous synthesis")
+                break
 
     # ---- Phase 5: Anticipatory Q&A Research ----
     if not result.master_synthesis:
