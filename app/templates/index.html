@@ -659,27 +659,45 @@ const App = (function() {
     const list = document.getElementById('study-list');
     if (!studyProgress || !studyProgress.length) { tracker.classList.add('hidden'); return; }
     tracker.classList.remove('hidden');
+    const done = studyProgress.filter(s => s.status === 'done').length;
+    const running = studyProgress.filter(s => s.status === 'running').length;
     list.innerHTML = studyProgress.map((s, i) => {
-      const statusIcon = s.status === 'done' ? '<span class="material-icons text-emerald-500 text-sm">check_circle</span>'
-        : s.status === 'running' ? '<span class="material-icons text-primary text-sm animate-pulse">pending</span>'
-        : s.status === 'failed' ? '<span class="material-icons text-red-400 text-sm">error</span>'
-        : '<span class="material-icons text-slate-300 text-sm">radio_button_unchecked</span>';
-      const textClass = s.status === 'running' ? 'text-slate-700 font-medium' : s.status === 'done' ? 'text-slate-500' : 'text-slate-400';
+      let statusIcon, textClass;
+      if (s.status === 'done') {
+        statusIcon = '<span class="material-icons text-emerald-500 text-sm">check_circle</span>';
+        textClass = 'text-emerald-700';
+      } else if (s.status === 'running') {
+        statusIcon = '<div class="w-4 h-4 border-2 border-slate-200 border-t-primary rounded-full flex-shrink-0" style="animation:spin 1s linear infinite"></div>';
+        textClass = 'text-slate-700 font-medium';
+      } else if (s.status === 'failed') {
+        statusIcon = '<span class="material-icons text-red-400 text-sm">error</span>';
+        textClass = 'text-red-500';
+      } else {
+        statusIcon = '<span class="material-icons text-slate-300 text-sm">radio_button_unchecked</span>';
+        textClass = 'text-slate-400';
+      }
       return `<div class="flex items-center gap-2 px-1">${statusIcon}<span class="text-xs ${textClass} truncate">${s.title || 'Study '+(i+1)}</span></div>`;
     }).join('');
+  }
+
+  function normalizePipelineStep(step) {
+    if (!step) return step;
+    if (step.startsWith('study_')) return 'studies';
+    return step;
   }
 
   function renderPipelineSteps(currentStep) {
     const container = document.getElementById('pipeline-steps');
     const list = document.getElementById('step-list');
-    if (!currentStep && !pipelineRendered) return;
+    const normalized = normalizePipelineStep(currentStep);
+    if (!normalized && !pipelineRendered) return;
     container.classList.remove('hidden');
     pipelineRendered = true;
-    const stepIdx = PIPELINE_STEPS.findIndex(s => s.id === currentStep);
+    const stepIdx = PIPELINE_STEPS.findIndex(s => s.id === normalized);
     list.innerHTML = PIPELINE_STEPS.map((s, i) => {
       let icon, textClass;
-      if (i < stepIdx) { icon = `<span class="material-icons text-emerald-500 text-sm">check_circle</span>`; textClass = 'text-slate-500'; }
-      else if (i === stepIdx) { icon = `<span class="material-icons text-primary text-sm animate-pulse">pending</span>`; textClass = 'text-slate-700 font-medium'; }
+      if (i < stepIdx) { icon = `<span class="material-icons text-emerald-500 text-sm">check_circle</span>`; textClass = 'text-emerald-700'; }
+      else if (i === stepIdx) { icon = `<div class="w-4 h-4 border-2 border-slate-200 border-t-primary rounded-full flex-shrink-0" style="animation:spin 1s linear infinite"></div>`; textClass = 'text-slate-700 font-medium'; }
       else { icon = `<span class="material-icons text-slate-300 text-sm">radio_button_unchecked</span>`; textClass = 'text-slate-400'; }
       return `<div class="flex items-center gap-2 px-1">${icon}<span class="material-icons ${textClass} text-sm">${s.icon}</span><span class="text-xs ${textClass}">${s.label}</span></div>`;
     }).join('');
