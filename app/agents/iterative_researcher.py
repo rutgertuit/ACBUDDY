@@ -202,6 +202,17 @@ IMPORTANT RULES:
   German or UK broadcaster data in a study about the Netherlands).
 - Prefer fewer, well-sourced insights over a long list of unverified claims.
 
+SOURCE QUALITY RULES:
+- Prioritize claims backed by multiple independent sources. If 3+ sources agree, note this.
+- Weight authoritative domains higher: government (.gov), academic (.edu), major publications
+  (Reuters, Bloomberg, FT, WSJ) > general web sources > blogs/forums.
+- When a claim comes from a single source only, note: "(single source: [domain])".
+- Flag potential bias from vendor reports, sponsored content, or advocacy sources.
+- Tag each major finding with a confidence level:
+  [HIGH CONFIDENCE] — 3+ independent credible sources
+  [MEDIUM CONFIDENCE] — 1-2 credible sources
+  [LOW CONFIDENCE] — single source, potentially biased, or conflicting data
+
 Format your output as a professional study document with:
 # {title}
 
@@ -209,13 +220,18 @@ Format your output as a professional study document with:
 (2-3 paragraph summary of this study's findings)
 
 ## Detailed Findings
-(Organized by subtopic with bullet points and data)
+(Organized by subtopic with bullet points and data. Each major finding tagged with confidence level.)
+
+## Source Reliability Notes
+- High confidence: [findings backed by 3+ sources]
+- Medium confidence: [findings from 1-2 credible sources]
+- Low confidence / needs verification: [single or biased sources]
 
 ## Sources
 (All URLs referenced — only include URLs that back claims used above)
 
 ## Key Takeaways
-(3-5 actionable insights from this study)
+(3-5 actionable insights from this study, noting confidence level for each)
 
 Write clearly, cite sources inline, be thorough."""
 

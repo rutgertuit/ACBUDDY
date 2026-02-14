@@ -127,6 +127,19 @@ IMPORTANT RULES:
 - Maintain strict geographic and topical scope. If the research query targets a specific country
   or region, exclude data and examples from other geographies unless explicitly comparative.
 
+SOURCE QUALITY RULES:
+- Prioritize claims corroborated across multiple independent studies. Cross-study agreement
+  significantly increases confidence.
+- Weight authoritative domains higher: government (.gov), academic (.edu, peer-reviewed),
+  major publications (Reuters, Bloomberg, FT, WSJ, NYT) > industry reports > general web.
+- When a claim appears in only one study with a single source, note: "(single source)".
+- Flag potential bias: vendor/consulting reports, advocacy organizations, sponsored research.
+  Note: "Source may have commercial/advocacy interest."
+- For each key finding, assign a confidence tag:
+  [HIGH CONFIDENCE] — corroborated across studies OR backed by 3+ authoritative sources
+  [MEDIUM CONFIDENCE] — single study with 1-2 credible sources
+  [LOW CONFIDENCE] — single source, potentially biased, or studies conflict
+
 Format as:
 
 # Executive Research Briefing: {query}
@@ -138,13 +151,20 @@ Format as:
 (Brief summary of each study's key findings)
 
 ## Cross-Study Analysis
-(Patterns, contradictions, and connections across studies)
+(Patterns, contradictions, and connections across studies. Note where studies
+agree [HIGH CONFIDENCE] vs. where only one study covers a topic [MEDIUM/LOW].)
 
 ## Key Findings & Recommendations
-(Top 10 actionable findings with supporting evidence)
+(Top 10 actionable findings with supporting evidence. Each tagged with confidence level.)
+
+## Source Reliability Notes
+- High confidence findings: [list findings corroborated across 2+ studies or 3+ sources]
+- Medium confidence findings: [single study, 1-2 credible sources]
+- Low confidence / needs verification: [single source, biased, or conflicting]
+- Potential bias flags: [any findings from vendor/advocacy sources]
 
 ## Sources
-(Consolidated list of all sources across studies — only URLs that back claims used above)
+(Consolidated list of all sources — grouped by authority tier)
 
 ## Confidence Assessment
 (Overall confidence: High/Medium/Low with justification per study area)
@@ -342,6 +362,16 @@ Produce an improved executive briefing that:
 - Includes any newly discovered perspectives
 - Maintains all well-supported content from the original synthesis
 
+SOURCE QUALITY RULES (apply rigorously in this refined draft):
+- Prioritize claims corroborated across multiple studies or the new gap research.
+- Weight authoritative sources higher: government, academic, major publications > general web.
+- Remove or downgrade claims that remain single-sourced after gap research.
+- Flag any remaining potential bias from vendor/advocacy sources.
+- Tag each key finding with confidence level:
+  [HIGH CONFIDENCE] — corroborated across studies or 3+ authoritative sources
+  [MEDIUM CONFIDENCE] — 1-2 credible sources
+  [LOW CONFIDENCE] — single source, biased, or conflicting
+
 Format as:
 
 # Executive Research Briefing: {query}
@@ -353,13 +383,19 @@ Format as:
 (Brief summary of each study's key findings)
 
 ## Cross-Study Analysis
-(Patterns, contradictions, and connections — enhanced with gap findings)
+(Patterns, contradictions, and connections — enhanced with gap findings.
+Note confidence levels for cross-study vs. single-study findings.)
 
 ## Key Findings & Recommendations
-(Top 10 actionable findings with supporting evidence)
+(Top 10 actionable findings with supporting evidence. Each tagged with confidence level.)
+
+## Source Reliability Notes
+- High confidence findings: [corroborated across 2+ studies or 3+ sources]
+- Medium confidence findings: [single study, 1-2 credible sources]
+- Low confidence / needs verification: [single source, biased, or conflicting]
 
 ## Sources
-(Consolidated list of ALL sources — original + gap research)
+(Consolidated list of ALL sources — grouped by authority tier)
 
 ## Confidence Assessment
 (Overall confidence: High/Medium/Low with justification per area)
