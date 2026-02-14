@@ -279,6 +279,14 @@ def attach_kb(slug: str):
             doc_name=doc_name or doc_id,
             api_key=settings.elevenlabs_api_key,
         )
+        # Trigger RAG indexing so the agent can actually retrieve the doc
+        try:
+            elevenlabs_client.trigger_rag_index(
+                doc_id=doc_id,
+                api_key=settings.elevenlabs_api_key,
+            )
+        except Exception:
+            logger.warning("RAG index trigger failed for doc %s (non-fatal)", doc_id)
         # Invalidate ALL agent caches so UI reflects the change
         _cache.pop(f"kb_docs_{slug}", None)
         for s in AGENTS:
