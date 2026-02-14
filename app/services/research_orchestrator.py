@@ -255,6 +255,7 @@ def run_research_for_ui(
     user_query: str,
     depth: ResearchDepth,
     settings: Settings,
+    business_context: dict | None = None,
 ) -> None:
     """Launch research in a daemon thread for the web UI.
 
@@ -303,7 +304,8 @@ def run_research_for_ui(
             result = asyncio.run(
                 execute_research(query=user_query, context="", depth=depth,
                                  on_progress=_on_progress,
-                                 gcs_bucket=settings.gcs_results_bucket)
+                                 gcs_bucket=settings.gcs_results_bucket,
+                                 business_context=business_context)
             )
 
             # Upload consolidated KB doc to ElevenLabs
@@ -380,41 +382,53 @@ def run_research_for_ui(
                     research_stats={**final_stats, "human_hours": human_hours},
                 )
 
-            # Extract memories for cross-research learning (non-blocking)
-            try:
+            # Extract memories + entities in parallel (Feature 9: performance)
+            # Skip for QUICK depth to save API calls
+            if depth.value.upper() != "QUICK":
                 consolidated = _build_consolidated_text(result, user_query, depth.value)
                 if consolidated.strip():
-                    update_job(job_id, phase="Extracting memories")
-                    from app.agents.memory_extractor import extract_memories
-                    from app.services import memory_store
-                    memories = asyncio.run(extract_memories(consolidated[:15000]))
-                    if memories:
-                        store = memory_store.load_memory(settings.gcs_results_bucket)
-                        added = memory_store.add_memories(store, memories, job_id, user_query)
-                        memory_store.save_memory(store, settings.gcs_results_bucket)
-                        logger.info("Added %d memories from job %s", added, job_id)
-            except Exception:
-                logger.exception("Memory extraction failed (non-fatal)")
+                    update_job(job_id, phase="Extracting memories & knowledge graph")
 
-            # Extract entities for knowledge graph (non-blocking)
-            try:
-                consolidated = _build_consolidated_text(result, user_query, depth.value)
-                if consolidated.strip():
-                    update_job(job_id, phase="Extracting knowledge graph")
-                    from app.agents.entity_extractor import extract_entities
-                    from app.services import knowledge_graph as kg
-                    extraction = asyncio.run(extract_entities(consolidated[:20000]))
-                    if extraction.get("entities"):
-                        graph = kg.load_graph(settings.gcs_results_bucket)
-                        kg.merge_extraction(graph, extraction, job_id)
-                        kg.save_graph(graph, settings.gcs_results_bucket)
-                        logger.info(
-                            "Knowledge graph updated: +%d entities, +%d relationships",
-                            len(extraction.get("entities", [])),
-                            len(extraction.get("relationships", [])),
+                    async def _extract_both(text, _settings):
+                        """Run memory and entity extraction in parallel."""
+                        from app.agents.memory_extractor import extract_memories
+                        from app.agents.entity_extractor import extract_entities
+                        mem_task = extract_memories(text[:15000])
+                        ent_task = extract_entities(text[:20000])
+                        return await asyncio.gather(mem_task, ent_task)
+
+                    try:
+                        memories, extraction = asyncio.run(
+                            _extract_both(consolidated, settings)
                         )
-            except Exception:
-                logger.exception("Knowledge graph extraction failed (non-fatal)")
+
+                        # Save memories
+                        if memories:
+                            try:
+                                from app.services import memory_store
+                                store = memory_store.load_memory(settings.gcs_results_bucket)
+                                added = memory_store.add_memories(store, memories, job_id, user_query)
+                                memory_store.save_memory(store, settings.gcs_results_bucket)
+                                logger.info("Added %d memories from job %s", added, job_id)
+                            except Exception:
+                                logger.exception("Memory save failed (non-fatal)")
+
+                        # Save entities
+                        if extraction and extraction.get("entities"):
+                            try:
+                                from app.services import knowledge_graph as kg
+                                graph = kg.load_graph(settings.gcs_results_bucket)
+                                kg.merge_extraction(graph, extraction, job_id)
+                                kg.save_graph(graph, settings.gcs_results_bucket)
+                                logger.info(
+                                    "Knowledge graph updated: +%d entities, +%d relationships",
+                                    len(extraction.get("entities", [])),
+                                    len(extraction.get("relationships", [])),
+                                )
+                            except Exception:
+                                logger.exception("Knowledge graph save failed (non-fatal)")
+                    except Exception:
+                        logger.exception("Parallel extraction failed (non-fatal)")
 
             update_job(
                 job_id,

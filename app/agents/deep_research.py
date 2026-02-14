@@ -38,7 +38,7 @@ def _web_search(query: str) -> str:
     for attempt in range(MAX_SEARCH_RETRIES):
         try:
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
                 contents=f"Search and summarize information about: {query}",
                 config=GenerateContentConfig(
                     tools=[Tool(google_search={})],
@@ -56,7 +56,11 @@ def _web_search(query: str) -> str:
                 chunks = candidate.grounding_metadata.grounding_chunks or []
                 for chunk in chunks:
                     if chunk.web:
-                        result_parts.append(f"[Source: {chunk.web.title} - {chunk.web.uri}]")
+                        # Score source authority
+                        from app.services.source_scorer import score_url, format_authority_tag
+                        url_score = score_url(chunk.web.uri)
+                        tag = format_authority_tag(url_score)
+                        result_parts.append(f"[Source: {chunk.web.title} - {chunk.web.uri}] {tag}")
                         source_count += 1
             if source_count:
                 increment("pages_read", source_count)
@@ -92,9 +96,14 @@ def _pull_sources(urls: list[str]) -> str:
     Returns:
         Combined text content from all successfully fetched URLs.
     """
+    # Score and sort URLs by authority (high first)
+    from app.services.source_scorer import score_and_sort, format_authority_tag
+    scored_urls = score_and_sort(urls[:5])
+
     results = []
     fetched = 0
-    for url in urls[:5]:  # Limit to 5 URLs
+    for url, url_score in scored_urls:
+        tag = format_authority_tag(url_score)
         try:
             resp = requests.get(url, timeout=15, headers={"User-Agent": "ACBUDDY-Research/1.0"})
             resp.raise_for_status()
@@ -103,12 +112,12 @@ def _pull_sources(urls: list[str]) -> str:
             # Collapse whitespace
             text = re.sub(r"\s+", " ", text).strip()
             # Truncate to 5K chars per source
-            results.append(f"[Source: {url}]\n{text[:5000]}\n")
+            results.append(f"[Source: {url}] {tag}\n{text[:5000]}\n")
             fetched += 1
         except Exception as e:
             logger.warning("Failed to fetch %s: %s", url, e)
-            results.append(f"[Source: {url}] Error: {e}\n")
-    increment("urls_fetched", len(urls[:5]))
+            results.append(f"[Source: {url}] {tag} Error: {e}\n")
+    increment("urls_fetched", len(scored_urls))
     increment("pages_read", fetched)
     return "\n---\n".join(results)
 
@@ -320,12 +329,15 @@ Rules:
 - Stay strictly within the geographic, temporal, and topical scope of the question. If the
   question is about a specific country or region, only include data and examples from that
   geography. Do not pad findings with data from other regions.
+- Sources include authority tags like [HIGH/MEDIUM/LOW AUTHORITY]. Heavily weight HIGH AUTHORITY
+  sources in your findings. Treat LOW AUTHORITY sources as supplementary only — never let a LOW
+  AUTHORITY source be the sole evidence for a key claim.
 - Use at least 2 different search tools when the topic warrants it.
 - Be thorough but concise. Focus on accuracy and relevance.
 """
 
 
-def build_researcher(index: int, model: str = "gemini-2.0-flash", prefix: str = "research") -> LlmAgent:
+def build_researcher(index: int, model: str = "gemini-2.5-flash", prefix: str = "research") -> LlmAgent:
     """Build an LlmAgent with web_search and pull_sources tools.
 
     Args:

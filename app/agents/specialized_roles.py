@@ -82,7 +82,7 @@ Include specific data, statistics, and expert opinions from {domain} sources.
 Cite all sources with URLs."""
 
 
-def build_fact_checker(index: int, model: str = "gemini-2.0-flash", prefix: str = "factcheck") -> LlmAgent:
+def build_fact_checker(index: int, model: str = "gemini-2.5-flash", prefix: str = "factcheck") -> LlmAgent:
     """Build a fact-checker agent that verifies claims in a synthesis."""
     return LlmAgent(
         name=f"fact_checker_{index}",
@@ -93,7 +93,7 @@ def build_fact_checker(index: int, model: str = "gemini-2.0-flash", prefix: str 
     )
 
 
-def build_devils_advocate(index: int, model: str = "gemini-2.0-flash", prefix: str = "devils_advocate") -> LlmAgent:
+def build_devils_advocate(index: int, model: str = "gemini-2.5-flash", prefix: str = "devils_advocate") -> LlmAgent:
     """Build a devil's advocate agent that finds counter-evidence."""
     return LlmAgent(
         name=f"devils_advocate_{index}",
@@ -104,7 +104,7 @@ def build_devils_advocate(index: int, model: str = "gemini-2.0-flash", prefix: s
     )
 
 
-def build_domain_expert(index: int, domain: str, model: str = "gemini-2.0-flash", prefix: str = "domain_expert") -> LlmAgent:
+def build_domain_expert(index: int, domain: str, model: str = "gemini-2.5-flash", prefix: str = "domain_expert") -> LlmAgent:
     """Build a domain-specialized researcher agent."""
     instruction = DOMAIN_EXPERT_INSTRUCTION_TEMPLATE.format(domain=domain)
     return LlmAgent(

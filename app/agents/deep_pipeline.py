@@ -14,14 +14,64 @@ from app.agents.deep_research import build_researcher
 from app.agents.qa_anticipator import build_qa_anticipator
 from app.agents.synthesis_evaluator import evaluate_synthesis
 from app.agents.strategic_analyst import run_strategic_analysis
+from app.agents.query_analyzer import analyze_query
+from app.agents.claim_validator import validate_claims
 from app.models.research_result import ResearchResult, StudyResult, QAClusterResult
+from app.services.model_router import (
+    get_model_for_phase, get_gemini_model, should_use_deep_research, has_openai,
+)
+from app.services import openai_client as openai_svc
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.0-flash"
+MODEL = get_gemini_model()
 APP_NAME = "acbuddy_research"
 MAX_CONCURRENT_STUDIES = 3
 MAX_CONCURRENT_QA = 3
+
+
+async def _run_deep_research_study(idx: int, study: dict) -> StudyResult:
+    """Run a study using Gemini Deep Research (autonomous agent).
+
+    Returns a StudyResult with synthesis populated from the deep research report.
+    Falls back with empty synthesis on failure (caller will retry with iterative).
+    """
+    title = study.get("title", f"Study {idx}")
+    angle = study.get("angle", "")
+    questions = study.get("questions", [])
+
+    # Build a comprehensive research prompt
+    prompt_parts = [f"Research study: {title}"]
+    if angle:
+        prompt_parts.append(f"Research angle: {angle}")
+    if questions:
+        prompt_parts.append("Key questions to answer:")
+        for q in questions:
+            prompt_parts.append(f"- {q}")
+    prompt_parts.append(
+        "\nProvide a comprehensive, well-cited research report with specific data, "
+        "statistics, and source URLs. Include confidence levels for key findings."
+    )
+
+    try:
+        from app.services.gemini_deep_research import run_deep_research
+        report = await run_deep_research(
+            query="\n".join(prompt_parts),
+            context=f"This is study {idx + 1} of a multi-study research pipeline.",
+        )
+        if report:
+            logger.info("Deep Research study %d '%s': %d chars", idx, title, len(report))
+            return StudyResult(
+                title=title,
+                angle=angle,
+                questions=questions,
+                rounds=[{"deep_research": report}],
+                synthesis=report,
+            )
+    except Exception:
+        logger.exception("Deep Research study %d failed", idx)
+
+    return StudyResult(title=title, angle=angle, questions=questions)
 
 
 async def execute_deep_research(
@@ -31,6 +81,7 @@ async def execute_deep_research(
     max_rounds_per_study: int = 3,
     max_qa_rounds: int = 2,
     on_progress=None,
+    business_context: dict | None = None,
 ) -> ResearchResult:
     """Execute the full DEEP multi-study research pipeline.
 
@@ -55,6 +106,14 @@ async def execute_deep_research(
     result = ResearchResult(original_query=query)
     session_service = InMemorySessionService()
 
+    # ---- Phase 0: Query Analysis ----
+    _progress("Analyzing query", step="analysis")
+    logger.info("DEEP Phase 0: Analyzing query: %s", query[:100])
+    query_analysis = await analyze_query(query, context)
+    result.query_analysis = query_analysis
+    logger.info("DEEP Phase 0 complete: domains=%s, complexity=%s",
+                query_analysis.get("domains"), query_analysis.get("complexity"))
+
     # ---- Phase 1: Study Planning ----
     _progress("planning", step="planning")
     logger.info("DEEP Phase 1: Planning studies for query: %s", query[:100])
@@ -69,6 +128,14 @@ async def execute_deep_research(
     prompt = f"Research query: {query}"
     if context:
         prompt = f"Conversation context:\n{context}\n\nResearch query: {query}"
+
+    # Inject query analysis into planning prompt
+    qa_domains = query_analysis.get("domains", [])
+    qa_complexity = query_analysis.get("complexity", "medium")
+    if qa_domains:
+        prompt += f"\n\nQuery analysis suggests domains: {', '.join(qa_domains)}, complexity: {qa_complexity}. Plan studies accordingly."
+    if context and "Relevant findings from past research" in context:
+        prompt += "\nPrior research findings are available (see context). Focus studies on areas NOT already covered, or on updating stale findings."
 
     session = session_service.create_session(app_name=APP_NAME, user_id="system")
     content = types.Content(role="user", parts=[types.Part(text=prompt)])
@@ -108,9 +175,24 @@ async def execute_deep_research(
             title = study_dict.get("title", f"Study {idx}")
             role = study_dict.get("recommended_role", "general")
             domain = study_dict.get("domain", "")
+            # Use query analysis to default to domain expert if no role specified
+            if role == "general" and query_analysis.get("domain_for_expert"):
+                role = "domain_expert"
+                domain = domain or query_analysis["domain_for_expert"]
             _progress(f"Researching: {title}", step=f"study_{idx}",
                       study_idx=idx, study_status="running")
             try:
+                # Route complex studies to Gemini Deep Research
+                use_deep = should_use_deep_research(study_dict, query_analysis)
+                if use_deep:
+                    sr = await _run_deep_research_study(idx, study_dict)
+                    if sr.synthesis:
+                        _progress(f"Completed: {title}", step=f"study_{idx}",
+                                  study_idx=idx, study_status="done")
+                        return sr
+                    # Fall through to iterative if deep research fails
+                    logger.warning("Deep Research failed for study %d, falling back to iterative", idx)
+
                 # Select researcher builder based on role
                 researcher_builder = None
                 if role == "domain_expert" and domain:
@@ -213,47 +295,79 @@ agree [HIGH CONFIDENCE] vs. where only one study covers a topic [MEDIUM/LOW].)
 
 Be comprehensive, cite sources, highlight cross-study patterns."""
 
-    master_agent = LlmAgent(
-        name="master_synthesizer",
-        model=MODEL,
-        instruction=master_instruction,
-        output_key="master_synthesis",
-    )
-
-    master_runner = Runner(
-        agent=master_agent,
-        app_name=APP_NAME,
-        session_service=session_service,
-    )
-
     # Load all study syntheses into state
     master_state = {}
     for i, s in enumerate(result.studies):
         if s.synthesis:
             master_state[f"study_{i}_synthesis"] = s.synthesis
 
-    master_session = session_service.create_session(
-        app_name=APP_NAME, user_id="system", state=master_state
-    )
-    master_content = types.Content(
-        role="user",
-        parts=[types.Part(text=f"Create an executive briefing for: {query}")],
-    )
+    # Route master synthesis: OpenAI for deep reasoning, Gemini for fallback
+    provider, synth_model = get_model_for_phase("master_synthesis")
+    logger.info("Master synthesis routing: provider=%s, model=%s", provider, synth_model)
 
-    async for event in master_runner.run_async(
-        user_id="system", session_id=master_session.id, new_message=master_content
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            result.master_synthesis = event.content.parts[0].text
+    if provider == "openai":
+        # Resolve template variables for direct OpenAI API call
+        resolved_instruction = master_instruction
+        for key, value in master_state.items():
+            resolved_instruction = resolved_instruction.replace(f"{{{key}}}", value)
 
-    if not result.master_synthesis:
-        master_session = session_service.get_session(
-            app_name=APP_NAME, user_id="system", session_id=master_session.id
+        loop = asyncio.get_running_loop()
+        result.master_synthesis = await loop.run_in_executor(None, lambda: openai_svc.complete(
+            system_prompt=resolved_instruction,
+            user_prompt=f"Create an executive briefing for: {query}",
+            model=synth_model,
+            max_tokens=12000,
+            timeout=180,
+        ))
+    else:
+        master_agent = LlmAgent(
+            name="master_synthesizer",
+            model=synth_model,
+            instruction=master_instruction,
+            output_key="master_synthesis",
         )
-        if master_session and "master_synthesis" in master_session.state:
-            result.master_synthesis = master_session.state["master_synthesis"]
+        master_runner = Runner(
+            agent=master_agent,
+            app_name=APP_NAME,
+            session_service=session_service,
+        )
+        master_session = session_service.create_session(
+            app_name=APP_NAME, user_id="system", state=master_state
+        )
+        master_content = types.Content(
+            role="user",
+            parts=[types.Part(text=f"Create an executive briefing for: {query}")],
+        )
+        async for event in master_runner.run_async(
+            user_id="system", session_id=master_session.id, new_message=master_content
+        ):
+            if event.is_final_response() and event.content and event.content.parts:
+                result.master_synthesis = event.content.parts[0].text
+
+        if not result.master_synthesis:
+            master_session = session_service.get_session(
+                app_name=APP_NAME, user_id="system", session_id=master_session.id
+            )
+            if master_session and "master_synthesis" in master_session.state:
+                result.master_synthesis = master_session.state["master_synthesis"]
 
     logger.info("DEEP Phase 4 complete: master synthesis %d chars", len(result.master_synthesis))
+
+    # ---- Phase 4a: Claim Validation (contradiction detection) ----
+    claim_validation = {}
+    if result.master_synthesis:
+        _progress("Validating claims", step="claim_validation")
+        logger.info("DEEP Phase 4a: Cross-source claim validation")
+        try:
+            claim_validation = await validate_claims(result.master_synthesis)
+            result.claim_validation = claim_validation
+            logger.info(
+                "Claim validation: %d contradictions, consistency=%s",
+                len(claim_validation.get("contradictions", [])),
+                claim_validation.get("consistency_rating"),
+            )
+        except Exception:
+            logger.exception("Claim validation failed (non-fatal)")
 
     # ---- Phase 4b: Synthesis Evaluation & Refinement ----
     if result.master_synthesis:
@@ -379,6 +493,21 @@ Be comprehensive, cite sources, highlight cross-study patterns."""
                     + "\n".join(f"- {m}" for m in missing[:5])
                 )
 
+            # Inject claim contradictions if found
+            contradiction_note = ""
+            contradictions = claim_validation.get("contradictions", [])
+            if contradictions:
+                high_sev = [c for c in contradictions if c.get("severity") == "high"]
+                if high_sev:
+                    contradiction_note = (
+                        "\n\nThe following contradictions were found and must be resolved in this refined draft:\n"
+                        + "\n".join(
+                            f"- CONFLICT: '{c.get('claim_a', '')}' vs '{c.get('claim_b', '')}' "
+                            f"(resolution hint: {c.get('likely_resolution', 'investigate')})"
+                            for c in high_sev[:5]
+                        )
+                    )
+
             refine_instruction = f"""You are an executive research synthesizer producing a REFINED
 draft of a research briefing. You now have {len([s for s in result.studies if s.synthesis])} studies total
 (including new gap studies that address previously identified weaknesses).
@@ -387,11 +516,13 @@ All study syntheses:
 {study_refs}
 {weak_claims_note}
 {missing_note}
+{contradiction_note}
 
 Produce an improved executive briefing that:
 - Incorporates findings from ALL studies including the new gap studies
 - Strengthens or removes claims that lacked evidence
 - Includes any newly discovered perspectives
+- Resolves any identified contradictions by investigating source authority and recency
 - Maintains all well-supported content from the original synthesis
 
 SOURCE QUALITY RULES (apply rigorously in this refined draft):
@@ -434,49 +565,65 @@ Note confidence levels for cross-study vs. single-study findings.)
 
 Be comprehensive. Mark any remaining areas of uncertainty explicitly."""
 
-            refine_agent = LlmAgent(
-                name="master_synthesizer_refine",
-                model=MODEL,
-                instruction=refine_instruction,
-                output_key="master_synthesis_refined",
-            )
-            refine_runner = Runner(
-                agent=refine_agent,
-                app_name=APP_NAME,
-                session_service=session_service,
-            )
-
             refine_state = dict(master_state)
 
-            refine_session = session_service.create_session(
-                app_name=APP_NAME, user_id="system", state=refine_state
-            )
-            refine_content = types.Content(
-                role="user",
-                parts=[types.Part(
-                    text=f"Create a refined executive briefing for: {query}"
-                )],
-            )
-
+            # Route refinement same as master synthesis
             refined_text = ""
-            async for event in refine_runner.run_async(
-                user_id="system",
-                session_id=refine_session.id,
-                new_message=refine_content,
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    refined_text = event.content.parts[0].text
+            if provider == "openai":
+                resolved_refine = refine_instruction
+                for key, value in refine_state.items():
+                    resolved_refine = resolved_refine.replace(f"{{{key}}}", value)
 
-            if not refined_text:
-                refine_session = session_service.get_session(
+                loop = asyncio.get_running_loop()
+                refined_text = await loop.run_in_executor(
+                    None,
+                    lambda ri=resolved_refine: openai_svc.complete(
+                        system_prompt=ri,
+                        user_prompt=f"Create a refined executive briefing for: {query}",
+                        model=synth_model,
+                        max_tokens=12000,
+                        timeout=180,
+                    ),
+                )
+            else:
+                refine_agent = LlmAgent(
+                    name="master_synthesizer_refine",
+                    model=synth_model,
+                    instruction=refine_instruction,
+                    output_key="master_synthesis_refined",
+                )
+                refine_runner = Runner(
+                    agent=refine_agent,
                     app_name=APP_NAME,
+                    session_service=session_service,
+                )
+                refine_session = session_service.create_session(
+                    app_name=APP_NAME, user_id="system", state=refine_state
+                )
+                refine_content = types.Content(
+                    role="user",
+                    parts=[types.Part(
+                        text=f"Create a refined executive briefing for: {query}"
+                    )],
+                )
+                async for event in refine_runner.run_async(
                     user_id="system",
                     session_id=refine_session.id,
-                )
-                if refine_session:
-                    refined_text = refine_session.state.get(
-                        "master_synthesis_refined", ""
+                    new_message=refine_content,
+                ):
+                    if event.is_final_response() and event.content and event.content.parts:
+                        refined_text = event.content.parts[0].text
+
+                if not refined_text:
+                    refine_session = session_service.get_session(
+                        app_name=APP_NAME,
+                        user_id="system",
+                        session_id=refine_session.id,
                     )
+                    if refine_session:
+                        refined_text = refine_session.state.get(
+                            "master_synthesis_refined", ""
+                        )
 
             if refined_text:
                 result.master_synthesis = refined_text
@@ -490,10 +637,18 @@ Be comprehensive. Mark any remaining areas of uncertainty explicitly."""
                 logger.warning("Refinement produced empty result, keeping previous synthesis")
                 break
 
-    # ---- Phase 4d: Enhanced Verification (if score < 7.5) ----
-    if result.master_synthesis and result.synthesis_score > 0 and result.synthesis_score < 7.5:
+    # ---- Phase 4d: Enhanced Verification ----
+    # Trigger when: score < 7.5 OR query analysis says fact-checking needed
+    needs_fact_check = query_analysis.get("needs_fact_checking", False)
+    is_controversial = query_analysis.get("controversial", False)
+    low_score = result.synthesis_score > 0 and result.synthesis_score < 7.5
+
+    if result.master_synthesis and (low_score or needs_fact_check):
         _progress("Running enhanced verification", step="verification")
-        logger.info("DEEP Phase 4d: Enhanced verification (score=%.1f < 7.5)", result.synthesis_score)
+        logger.info(
+            "DEEP Phase 4d: Enhanced verification (score=%.1f, fact_check=%s, controversial=%s)",
+            result.synthesis_score, needs_fact_check, is_controversial,
+        )
 
         try:
             from app.agents.specialized_roles import build_fact_checker, build_devils_advocate
@@ -515,20 +670,21 @@ Be comprehensive. Mark any remaining areas of uncertainty explicitly."""
                 if event.is_final_response() and event.content and event.content.parts:
                     fc_text = event.content.parts[0].text
 
-            # Run devil's advocate
-            da_agent = build_devils_advocate(0, model=MODEL)
-            da_runner = Runner(agent=da_agent, app_name=APP_NAME, session_service=verify_svc)
-            da_sess = verify_svc.create_session(app_name=APP_NAME, user_id="system")
-            da_msg = types.Content(
-                role="user",
-                parts=[types.Part(text=f"Challenge this research synthesis:\n\n{result.master_synthesis[:15000]}")],
-            )
+            # Run devil's advocate — always when controversial, or when score is low
             da_text = ""
-            async for event in da_runner.run_async(
-                user_id="system", session_id=da_sess.id, new_message=da_msg
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    da_text = event.content.parts[0].text
+            if is_controversial or low_score:
+                da_agent = build_devils_advocate(0, model=MODEL)
+                da_runner = Runner(agent=da_agent, app_name=APP_NAME, session_service=verify_svc)
+                da_sess = verify_svc.create_session(app_name=APP_NAME, user_id="system")
+                da_msg = types.Content(
+                    role="user",
+                    parts=[types.Part(text=f"Challenge this research synthesis:\n\n{result.master_synthesis[:15000]}")],
+                )
+                async for event in da_runner.run_async(
+                    user_id="system", session_id=da_sess.id, new_message=da_msg
+                ):
+                    if event.is_final_response() and event.content and event.content.parts:
+                        da_text = event.content.parts[0].text
 
             # Incorporate verification findings into synthesis
             if fc_text or da_text:
@@ -603,6 +759,23 @@ Format as: # Executive Research Briefing: {query}
         except Exception:
             logger.exception("Strategic analysis failed, continuing without it")
 
+    # ---- Phase 4e: Knowledge Graph Context Enrichment ----
+    if result.master_synthesis and context and "Known entity relationships:" in context:
+        try:
+            # Extract graph context that was injected by root_agent
+            kg_start = context.find("Known entity relationships:")
+            kg_end = context.find("\n\n", kg_start + 1)
+            kg_section = context[kg_start:kg_end] if kg_end > kg_start else context[kg_start:]
+            if kg_section.strip():
+                result.master_synthesis += (
+                    f"\n\n## Knowledge Graph Insights\n\n"
+                    f"The following entity relationships were known prior to this research "
+                    f"and cross-referenced with synthesis findings:\n\n{kg_section}"
+                )
+                logger.info("Appended KG insights section to master synthesis")
+        except Exception:
+            logger.warning("Failed to append KG insights (non-fatal)")
+
     # ---- Phase 5: Anticipatory Q&A Research ----
     if not result.master_synthesis:
         logger.warning("No master synthesis, skipping Q&A phase")
@@ -611,7 +784,7 @@ Format as: # Executive Research Briefing: {query}
     _progress("Generating anticipated Q&A", step="qa")
     logger.info("DEEP Phase 5: Anticipatory Q&A research")
 
-    qa_anticipator = build_qa_anticipator(model=MODEL)
+    qa_anticipator = build_qa_anticipator(model=MODEL, business_context=business_context)
     qa_runner = Runner(
         agent=qa_anticipator,
         app_name=APP_NAME,

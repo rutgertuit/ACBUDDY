@@ -52,7 +52,7 @@ Example output:
 No explanation, no markdown fences, just the JSON array."""
 
 
-def build_study_planner(model: str = "gemini-2.0-flash") -> LlmAgent:
+def build_study_planner(model: str = "gemini-2.5-flash") -> LlmAgent:
     return LlmAgent(
         name="study_planner",
         model=model,

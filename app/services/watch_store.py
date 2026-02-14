@@ -30,6 +30,8 @@ class ResearchWatch:
     last_findings_hash: str = ""
     history: list[dict] = field(default_factory=list)  # list of WatchUpdate dicts
     active: bool = True
+    notification_email: str = ""
+    notification_webhook: str = ""
 
     def is_due(self) -> bool:
         """Check if this watch is due for a check."""

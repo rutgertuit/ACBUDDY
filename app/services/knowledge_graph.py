@@ -2,11 +2,16 @@
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field, asdict
 
 logger = logging.getLogger(__name__)
 
 GRAPH_BLOB = "graph/knowledge_graph.json"
+
+# Module-level cache for GCS loads (5 min TTL)
+_cache: dict = {"data": None, "ts": 0}
+_CACHE_TTL = 300
 
 
 @dataclass
@@ -52,10 +57,12 @@ def _normalize_name(name: str) -> str:
     return name.strip().lower()
 
 
-def load_graph(bucket_name: str) -> KnowledgeGraph:
-    """Load the knowledge graph from GCS, or return empty graph."""
+def load_graph(bucket_name: str, use_cache: bool = True) -> KnowledgeGraph:
+    """Load the knowledge graph from GCS, or return empty graph. Uses in-memory cache."""
     if not bucket_name:
         return KnowledgeGraph()
+    if use_cache and _cache["data"] and (time.time() - _cache["ts"]) < _CACHE_TTL:
+        return _cache["data"]
     try:
         from google.cloud import storage
 
@@ -65,14 +72,17 @@ def load_graph(bucket_name: str) -> KnowledgeGraph:
         if not blob.exists():
             return KnowledgeGraph()
         data = json.loads(blob.download_as_text())
-        return KnowledgeGraph.from_dict(data)
+        graph = KnowledgeGraph.from_dict(data)
+        _cache["data"] = graph
+        _cache["ts"] = time.time()
+        return graph
     except Exception:
         logger.exception("Failed to load knowledge graph")
         return KnowledgeGraph()
 
 
 def save_graph(graph: KnowledgeGraph, bucket_name: str) -> None:
-    """Save the knowledge graph to GCS."""
+    """Save the knowledge graph to GCS. Invalidates cache."""
     if not bucket_name:
         return
     try:
@@ -85,6 +95,9 @@ def save_graph(graph: KnowledgeGraph, bucket_name: str) -> None:
             json.dumps(graph.to_dict(), indent=2),
             content_type="application/json",
         )
+        # Invalidate cache on save
+        _cache["data"] = None
+        _cache["ts"] = 0
         logger.info("Saved knowledge graph: %d entities, %d relationships",
                      len(graph.entities), len(graph.relationships))
     except Exception:
@@ -194,6 +207,33 @@ def find_connections(graph: KnowledgeGraph, entity_name: str) -> dict:
         "outgoing": outgoing,
         "incoming": incoming,
     }
+
+
+def find_query_entities(graph: KnowledgeGraph, query: str) -> list[dict]:
+    """Find graph entities mentioned in query text. Returns connection data for each."""
+    results = []
+    query_lower = query.lower()
+    for key, entity in graph.entities.items():
+        names = [entity.name.lower()] + [a.lower() for a in entity.aliases]
+        if any(n in query_lower for n in names):
+            results.append(find_connections(graph, entity.name))
+    return results
+
+
+def format_graph_context(entity_connections: list[dict]) -> str:
+    """Format entity connections as text for LLM context injection."""
+    parts = []
+    for conn in entity_connections:
+        if not conn.get("found"):
+            continue
+        e = conn["entity"]
+        lines = [f"Entity: {e['name']} ({e['type']})"]
+        for rel in conn.get("outgoing", []):
+            lines.append(f"  -> {rel['type']} -> {rel['to']}")
+        for rel in conn.get("incoming", []):
+            lines.append(f"  <- {rel['type']} <- {rel['from']}")
+        parts.append("\n".join(lines))
+    return "\n\n".join(parts)
 
 
 def get_graph_stats(graph: KnowledgeGraph) -> dict:

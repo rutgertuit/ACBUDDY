@@ -176,6 +176,35 @@ tailwind.config = {
             <button class="depth-btn flex-1 py-2 rounded-xl text-xs font-medium tracking-wide border border-primary text-primary bg-primary/10 transition-all" data-depth="STANDARD">Standard</button>
             <button class="depth-btn flex-1 py-2 rounded-xl text-xs font-medium tracking-wide border border-slate-200 text-slate-400 transition-all hover:border-primary/30" data-depth="DEEP">Deep</button>
           </div>
+          <!-- Business Context (optional, collapsible) -->
+          <div id="business-context-section" class="hidden mt-3 w-full">
+            <button id="bc-toggle" type="button" class="flex items-center gap-1 text-[10px] uppercase tracking-wider text-slate-400 hover:text-primary transition-colors">
+              <span class="material-icons text-sm">tune</span>
+              <span id="bc-toggle-label">Business Context (optional)</span>
+            </button>
+            <div id="bc-fields" class="hidden mt-2 space-y-2">
+              <select id="bc-role" class="w-full text-xs rounded-lg border border-slate-200 bg-white/50 px-3 py-1.5 text-slate-600 focus:border-primary focus:ring-1 focus:ring-primary/30">
+                <option value="">Role (optional)</option>
+                <option value="Product Manager">Product Manager</option>
+                <option value="Executive">Executive</option>
+                <option value="Analyst">Analyst</option>
+                <option value="Investor">Investor</option>
+                <option value="Researcher">Researcher</option>
+                <option value="Consultant">Consultant</option>
+                <option value="Other">Other</option>
+              </select>
+              <select id="bc-decision" class="w-full text-xs rounded-lg border border-slate-200 bg-white/50 px-3 py-1.5 text-slate-600 focus:border-primary focus:ring-1 focus:ring-primary/30">
+                <option value="">Decision Type (optional)</option>
+                <option value="Build vs Buy">Build vs Buy</option>
+                <option value="Market Entry">Market Entry</option>
+                <option value="Investment">Investment</option>
+                <option value="Strategy">Strategy</option>
+                <option value="General">General</option>
+              </select>
+              <input id="bc-industry" type="text" placeholder="Industry (optional)" class="w-full text-xs rounded-lg border border-slate-200 bg-white/50 px-3 py-1.5 text-slate-600 placeholder-slate-300 focus:border-primary focus:ring-1 focus:ring-primary/30">
+              <input id="bc-stakeholders" type="text" placeholder="Key stakeholders, comma-separated (optional)" class="w-full text-xs rounded-lg border border-slate-200 bg-white/50 px-3 py-1.5 text-slate-600 placeholder-slate-300 focus:border-primary focus:ring-1 focus:ring-primary/30">
+            </div>
+          </div>
         </div>
       </div>
 
@@ -520,6 +549,12 @@ tailwind.config = {
             Create
           </button>
         </div>
+        <div class="mt-2 space-y-1">
+          <input id="watch-email" type="email" placeholder="Notification email (optional)"
+                 class="w-full px-3 py-1.5 rounded-lg bg-white/60 border border-slate-200 text-xs text-slate-600 placeholder-slate-300 focus:ring-1 focus:ring-primary">
+          <input id="watch-webhook" type="url" placeholder="Webhook URL - Slack/Discord (optional)"
+                 class="w-full px-3 py-1.5 rounded-lg bg-white/60 border border-slate-200 text-xs text-slate-600 placeholder-slate-300 focus:ring-1 focus:ring-primary">
+        </div>
       </div>
       <div id="watches-list" class="space-y-2"></div>
     </div>
@@ -685,8 +720,30 @@ const App = (function() {
       btn.classList.remove('border-slate-200','text-slate-400');
       btn.classList.add('border-primary','text-primary','bg-primary/10');
       selectedDepth = btn.dataset.depth;
+      // Show/hide business context for STANDARD and DEEP
+      const bcSection = document.getElementById('business-context-section');
+      if (selectedDepth === 'QUICK') {
+        bcSection.classList.add('hidden');
+      } else {
+        bcSection.classList.remove('hidden');
+      }
     });
   });
+
+  // Business context toggle
+  document.getElementById('bc-toggle').addEventListener('click', () => {
+    const fields = document.getElementById('bc-fields');
+    fields.classList.toggle('hidden');
+  });
+
+  function getBusinessContext() {
+    const role = document.getElementById('bc-role').value;
+    const decision = document.getElementById('bc-decision').value;
+    const industry = document.getElementById('bc-industry').value.trim();
+    const stakeholders = document.getElementById('bc-stakeholders').value.trim();
+    if (!role && !decision && !industry && !stakeholders) return null;
+    return { user_role: role, decision_type: decision, industry, stakeholders };
+  }
 
   /* ── ACTIVATE ── */
   const activateBtn = document.getElementById('activate-btn');
@@ -735,10 +792,13 @@ const App = (function() {
   });
 
   async function launchResearch(query) {
+    const payload = { query, depth: selectedDepth };
+    const bc = getBusinessContext();
+    if (bc) payload.business_context = bc;
     const res = await fetch('/api/research', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ query, depth: selectedDepth })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Request failed');
@@ -1578,14 +1638,21 @@ const App = (function() {
     const query = document.getElementById('watch-query').value.trim();
     const interval = document.getElementById('watch-interval').value;
     if (!query) { alert('Please enter a topic to monitor.'); return; }
+    const payload = { query, interval_hours: parseInt(interval) };
+    const email = document.getElementById('watch-email').value.trim();
+    const webhook = document.getElementById('watch-webhook').value.trim();
+    if (email) payload.notification_email = email;
+    if (webhook) payload.notification_webhook = webhook;
     try {
       const res = await fetch('/api/watches', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ query, interval_hours: parseInt(interval) })
+        body: JSON.stringify(payload)
       });
       if (res.ok) {
         document.getElementById('watch-query').value = '';
+        document.getElementById('watch-email').value = '';
+        document.getElementById('watch-webhook').value = '';
         loadWatches();
       } else {
         const data = await res.json();

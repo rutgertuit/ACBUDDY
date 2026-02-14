@@ -1,17 +1,24 @@
 """Persistent memory store — learns from past research for cross-session awareness.
 
-Stores memories in GCS at memory/memory.json. Uses Gemini embeddings for recall.
+Stores memories in GCS at memory/memory.json. Uses Gemini embeddings for recall
+with keyword fallback.
 """
 
 import json
 import logging
+import math
 import secrets
+import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
 MEMORY_BLOB = "memory/memory.json"
+
+# Module-level cache for GCS loads (5 min TTL)
+_cache: dict = {"data": None, "ts": 0}
+_CACHE_TTL = 300
 
 
 @dataclass
@@ -40,10 +47,12 @@ class MemoryStore:
         return store
 
 
-def load_memory(bucket_name: str) -> MemoryStore:
-    """Load memory from GCS, or return empty store."""
+def load_memory(bucket_name: str, use_cache: bool = True) -> MemoryStore:
+    """Load memory from GCS, or return empty store. Uses in-memory cache."""
     if not bucket_name:
         return MemoryStore()
+    if use_cache and _cache["data"] and (time.time() - _cache["ts"]) < _CACHE_TTL:
+        return _cache["data"]
     try:
         from google.cloud import storage
 
@@ -53,14 +62,17 @@ def load_memory(bucket_name: str) -> MemoryStore:
         if not blob.exists():
             return MemoryStore()
         data = json.loads(blob.download_as_text())
-        return MemoryStore.from_dict(data)
+        store = MemoryStore.from_dict(data)
+        _cache["data"] = store
+        _cache["ts"] = time.time()
+        return store
     except Exception:
         logger.exception("Failed to load memory store")
         return MemoryStore()
 
 
 def save_memory(store: MemoryStore, bucket_name: str) -> None:
-    """Save memory to GCS."""
+    """Save memory to GCS. Invalidates cache."""
     if not bucket_name:
         return
     try:
@@ -73,6 +85,9 @@ def save_memory(store: MemoryStore, bucket_name: str) -> None:
             json.dumps(store.to_dict(), indent=2),
             content_type="application/json",
         )
+        # Invalidate cache on save
+        _cache["data"] = None
+        _cache["ts"] = 0
         logger.info("Saved memory store: %d entries", len(store.entries))
     except Exception:
         logger.exception("Failed to save memory store")
@@ -112,10 +127,70 @@ def add_memories(store: MemoryStore, entries: list[dict], job_id: str, query: st
     return added
 
 
-def recall(store: MemoryStore, query: str, top_k: int = 5) -> list[dict]:
-    """Recall relevant memories for a query using keyword matching.
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Compute cosine similarity between two vectors."""
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = math.sqrt(sum(x * x for x in a))
+    norm_b = math.sqrt(sum(x * x for x in b))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
-    For MVP, uses simple keyword overlap. Can be upgraded to Gemini embeddings later.
+
+def _recall_with_keywords(store: MemoryStore, query: str, top_k: int = 5) -> list[dict]:
+    """Recall using keyword overlap (fallback method)."""
+    if not store.entries:
+        return []
+
+    query_words = set(query.lower().split())
+
+    scored = []
+    for entry in store.entries:
+        content_words = set(entry.content.lower().split())
+        tag_words = set(t.lower() for t in entry.tags)
+        score = len(query_words & content_words) + 2 * len(query_words & tag_words)
+        if score > 0:
+            scored.append((score, entry))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [asdict(entry) for _, entry in scored[:top_k]]
+
+
+def _recall_with_embeddings(store: MemoryStore, query: str, top_k: int = 5) -> list[dict]:
+    """Recall using Gemini text-embedding-004 for semantic similarity."""
+    import os
+    from google import genai
+
+    api_key = os.getenv("GOOGLE_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("No GOOGLE_API_KEY for embeddings")
+
+    client = genai.Client(api_key=api_key)
+
+    # Embed query
+    q_resp = client.models.embed_content(model="text-embedding-004", content=query)
+    q_vec = q_resp.embeddings[0].values
+
+    # Cap entries to avoid excessive embedding costs
+    entries = store.entries[:100]
+
+    # Batch embed all memory contents
+    contents = [e.content for e in entries]
+    c_resp = client.models.embed_content(model="text-embedding-004", content=contents)
+
+    # Score by cosine similarity
+    scored = []
+    for i, emb in enumerate(c_resp.embeddings):
+        sim = _cosine_similarity(q_vec, emb.values)
+        if sim > 0.3:  # threshold
+            scored.append((sim, entries[i]))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [asdict(entry) for _, entry in scored[:top_k]]
+
+
+def recall(store: MemoryStore, query: str, top_k: int = 5) -> list[dict]:
+    """Recall relevant memories — tries embedding similarity, falls back to keywords.
 
     Args:
         store: MemoryStore to search.
@@ -128,19 +203,15 @@ def recall(store: MemoryStore, query: str, top_k: int = 5) -> list[dict]:
     if not store.entries:
         return []
 
-    query_words = set(query.lower().split())
+    try:
+        results = _recall_with_embeddings(store, query, top_k)
+        if results:
+            logger.info("Embedding recall returned %d results", len(results))
+            return results
+    except Exception:
+        logger.warning("Embedding recall failed, falling back to keywords")
 
-    scored = []
-    for entry in store.entries:
-        content_words = set(entry.content.lower().split())
-        tag_words = set(t.lower() for t in entry.tags)
-        # Score = overlap with content + bonus for tag matches
-        score = len(query_words & content_words) + 2 * len(query_words & tag_words)
-        if score > 0:
-            scored.append((score, entry))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [asdict(entry) for _, entry in scored[:top_k]]
+    return _recall_with_keywords(store, query, top_k)
 
 
 def delete_memory(store: MemoryStore, memory_id: str) -> bool:

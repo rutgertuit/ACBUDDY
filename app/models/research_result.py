@@ -43,6 +43,12 @@ class ResearchResult:
     # Strategic analysis (populated by strategic analyst)
     strategic_analysis: str = ""
 
+    # Query analysis (populated by query_analyzer in Phase 0)
+    query_analysis: dict = field(default_factory=dict)
+
+    # Claim validation (populated by claim_validator after synthesis)
+    claim_validation: dict = field(default_factory=dict)
+
     # Synthesis quality (populated by synthesis evaluator)
     synthesis_score: float = 0.0
     synthesis_scores: dict = field(default_factory=dict)

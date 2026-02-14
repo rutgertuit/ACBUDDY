@@ -12,7 +12,7 @@ from app.agents.json_utils import parse_json_response
 logger = logging.getLogger(__name__)
 
 APP_NAME = "acbuddy_research"
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-2.5-flash"
 
 # Minimum overall score to skip refinement
 REFINEMENT_THRESHOLD = 8.0

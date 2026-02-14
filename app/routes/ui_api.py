@@ -67,7 +67,7 @@ def validate_research():
 
         client = genai.Client(api_key=settings.google_api_key)
         resp = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
             config=GenerateContentConfig(
                 temperature=0.2,
                 max_output_tokens=500,
@@ -113,8 +113,19 @@ def start_research():
     depth = ResearchDepth(depth_str.lower())
     settings = current_app.config["SETTINGS"]
 
+    # Parse optional business context
+    business_context = None
+    bc = data.get("business_context")
+    if isinstance(bc, dict) and any(bc.values()):
+        business_context = {
+            "user_role": (bc.get("user_role") or "").strip(),
+            "industry": (bc.get("industry") or "").strip(),
+            "decision_type": (bc.get("decision_type") or "").strip(),
+            "stakeholders": (bc.get("stakeholders") or "").strip(),
+        }
+
     job_id = create_job(query, depth_str)
-    run_research_for_ui(job_id, query, depth, settings)
+    run_research_for_ui(job_id, query, depth, settings, business_context=business_context)
 
     estimated = _ESTIMATED_DURATION.get(depth_str, 300)
     logger.info("Research job created: job=%s depth=%s query=%s", job_id, depth_str, query[:100])
@@ -526,6 +537,17 @@ def create_watch_endpoint():
 
     settings = current_app.config["SETTINGS"]
     watch = watch_store.create_watch(query, interval_hours, settings.gcs_results_bucket)
+
+    # Optional notification settings
+    notification_email = (data.get("notification_email") or "").strip()
+    notification_webhook = (data.get("notification_webhook") or "").strip()
+    if notification_email:
+        watch.notification_email = notification_email
+    if notification_webhook:
+        watch.notification_webhook = notification_webhook
+    if notification_email or notification_webhook:
+        watch_store._save_watch(watch, settings.gcs_results_bucket)
+
     return jsonify({
         "id": watch.id,
         "query": watch.query,
@@ -568,6 +590,15 @@ def check_watch_endpoint(watch_id: str):
         from app.agents.watch_checker import check_watch
         findings = asyncio.run(check_watch(watch.query))
         update = watch_store.record_check(watch, findings, settings.gcs_results_bucket)
+
+        # Send notification if changes detected
+        if update.changed and (watch.notification_email or watch.notification_webhook):
+            try:
+                from app.services.notification_client import send_watch_notification
+                asyncio.run(send_watch_notification(watch, update))
+            except Exception:
+                logger.warning("Notification failed for watch %s (non-fatal)", watch_id)
+
         return jsonify({
             "checked_at": update.checked_at,
             "changed": update.changed,
@@ -603,6 +634,15 @@ def check_all_watches_endpoint():
             from app.agents.watch_checker import check_watch
             findings = asyncio.run(check_watch(watch.query))
             update = watch_store.record_check(watch, findings, settings.gcs_results_bucket)
+
+            # Send notification if changes detected
+            if update.changed and (watch.notification_email or watch.notification_webhook):
+                try:
+                    from app.services.notification_client import send_watch_notification
+                    asyncio.run(send_watch_notification(watch, update))
+                except Exception:
+                    logger.warning("Notification failed for watch %s (non-fatal)", watch.id)
+
             results.append({
                 "watch_id": watch.id,
                 "query": watch.query,

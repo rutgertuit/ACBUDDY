@@ -17,13 +17,13 @@ from app.models.research_result import ResearchResult
 
 logger = logging.getLogger(__name__)
 
-MODEL = "gemini-2.0-flash"
+MODEL = "gemini-2.5-flash"
 APP_NAME = "acbuddy_research"
 
 
 async def execute_research(
     query: str, context: str = "", depth: ResearchDepth = ResearchDepth.STANDARD,
-    on_progress=None, gcs_bucket: str = "",
+    on_progress=None, gcs_bucket: str = "", business_context: dict | None = None,
 ) -> ResearchResult:
     """Execute research pipeline at the specified depth.
 
@@ -48,9 +48,27 @@ async def execute_research(
     if memory_context:
         context = (context + memory_context) if context else memory_context
 
+    # Inject knowledge graph context for known entities
+    graph_context = ""
+    try:
+        if gcs_bucket:
+            from app.services import knowledge_graph as kg
+            graph = kg.load_graph(gcs_bucket)
+            entity_connections = kg.find_query_entities(graph, query)
+            if entity_connections:
+                graph_context = "\nKnown entity relationships:\n" + kg.format_graph_context(entity_connections) + "\n"
+                logger.info("Injected %d KG entity connections into research context", len(entity_connections))
+    except Exception:
+        logger.warning("Failed to load graph context")
+    if graph_context:
+        context = (context + graph_context) if context else graph_context
+
     if depth == ResearchDepth.DEEP:
         from app.agents.deep_pipeline import execute_deep_research
-        return await execute_deep_research(query=query, context=context, on_progress=on_progress)
+        return await execute_deep_research(
+            query=query, context=context, on_progress=on_progress,
+            business_context=business_context,
+        )
 
     if depth == ResearchDepth.QUICK:
         return await _execute_quick_research(query=query, context=context)

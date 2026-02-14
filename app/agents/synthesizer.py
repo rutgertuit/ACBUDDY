@@ -1,7 +1,7 @@
 from google.adk.agents import LlmAgent
 
 
-def build_synthesizer(num_research: int, num_follow_ups: int, model: str = "gemini-2.0-flash") -> LlmAgent:
+def build_synthesizer(num_research: int, num_follow_ups: int, model: str = "gemini-2.5-flash") -> LlmAgent:
     """Build an LlmAgent that synthesizes all findings into a final document.
 
     Args:

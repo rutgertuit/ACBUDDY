@@ -5,7 +5,7 @@ def build_gap_analyzer(
     study_index: int,
     round_index: int,
     num_researchers: int,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-2.5-flash",
 ) -> LlmAgent:
     findings_refs = "\n".join(
         f"- {{study_{study_index}_round_{round_index}_researcher_{j}}}"

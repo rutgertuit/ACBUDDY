@@ -12,11 +12,13 @@ from app.agents.gap_analyzer import build_gap_analyzer
 from app.agents.json_utils import parse_json_response
 from app.agents.synthesizer import build_synthesizer
 from app.models.research_result import StudyResult
+from app.services.model_router import get_model_for_phase, get_gemini_model
+from app.services import openai_client as openai_svc
 
 logger = logging.getLogger(__name__)
 
 APP_NAME = "acbuddy_research"
-MODEL = "gemini-2.0-flash"
+MODEL = get_gemini_model()
 ROUND_MAX_RETRIES = 2
 ROUND_RETRY_BACKOFF = 5
 
@@ -237,56 +239,80 @@ Format your output as a professional study document with:
 
 Write clearly, cite sources inline, be thorough."""
 
-    synth_agent = LlmAgent(
-        name=f"synthesizer_study_{study_index}",
-        model=model,
-        instruction=synth_instruction,
-        output_key=f"study_{study_index}_synthesis",
-    )
+    # Route per-study synthesis: OpenAI for deep reasoning, Gemini for fallback
+    synth_provider, synth_model_name = get_model_for_phase("study_synthesis")
 
-    for retry in range(ROUND_MAX_RETRIES + 1):
-        try:
-            synth_runner = Runner(
-                agent=synth_agent,
-                app_name=APP_NAME,
-                session_service=session_service,
-            )
-            synth_session = session_service.create_session(
-                app_name=APP_NAME, user_id="system", state=dict(state)
-            )
-            synth_content = types.Content(
-                role="user",
-                parts=[types.Part(text=f"Synthesize all findings for study: {title}")],
-            )
+    if synth_provider == "openai":
+        # Resolve template variables for direct OpenAI API call
+        resolved_instruction = synth_instruction
+        for key in all_research_keys:
+            if key in state:
+                resolved_instruction = resolved_instruction.replace(f"{{{key}}}", state[key])
 
-            async for event in synth_runner.run_async(
-                user_id="system", session_id=synth_session.id, new_message=synth_content
-            ):
-                if event.is_final_response() and event.content and event.content.parts:
-                    result.synthesis = event.content.parts[0].text
-            break
-        except Exception as e:
-            error_str = str(e).lower()
-            is_retryable = any(kw in error_str for kw in [
-                "connect", "timeout", "read", "reset", "429", "503", "unavailable",
-            ])
-            if is_retryable and retry < ROUND_MAX_RETRIES:
-                wait = ROUND_RETRY_BACKOFF * (retry + 1)
-                logger.warning(
-                    "Study %d synthesis failed (attempt %d), retrying in %ds: %s",
-                    study_index, retry + 1, wait, e,
-                )
-                await asyncio.sleep(wait)
-            else:
-                raise
-
-    if not result.synthesis:
-        synth_session = session_service.get_session(
-            app_name=APP_NAME, user_id="system", session_id=synth_session.id
+        loop = asyncio.get_running_loop()
+        result.synthesis = await loop.run_in_executor(
+            None,
+            lambda ri=resolved_instruction: openai_svc.complete(
+                system_prompt=ri,
+                user_prompt=f"Synthesize all findings for study: {title}",
+                model=synth_model_name,
+                max_tokens=8000,
+                timeout=120,
+            ),
         )
-        if synth_session:
-            result.synthesis = synth_session.state.get(f"study_{study_index}_synthesis", "")
-            state.update(synth_session.state)
+
+    # Gemini fallback (or primary if provider is "gemini")
+    if not result.synthesis:
+        synth_agent = LlmAgent(
+            name=f"synthesizer_study_{study_index}",
+            model=model,
+            instruction=synth_instruction,
+            output_key=f"study_{study_index}_synthesis",
+        )
+
+        for retry in range(ROUND_MAX_RETRIES + 1):
+            try:
+                synth_runner = Runner(
+                    agent=synth_agent,
+                    app_name=APP_NAME,
+                    session_service=session_service,
+                )
+                synth_session = session_service.create_session(
+                    app_name=APP_NAME, user_id="system", state=dict(state)
+                )
+                synth_content = types.Content(
+                    role="user",
+                    parts=[types.Part(text=f"Synthesize all findings for study: {title}")],
+                )
+
+                async for event in synth_runner.run_async(
+                    user_id="system", session_id=synth_session.id, new_message=synth_content
+                ):
+                    if event.is_final_response() and event.content and event.content.parts:
+                        result.synthesis = event.content.parts[0].text
+                break
+            except Exception as e:
+                error_str = str(e).lower()
+                is_retryable = any(kw in error_str for kw in [
+                    "connect", "timeout", "read", "reset", "429", "503", "unavailable",
+                ])
+                if is_retryable and retry < ROUND_MAX_RETRIES:
+                    wait = ROUND_RETRY_BACKOFF * (retry + 1)
+                    logger.warning(
+                        "Study %d synthesis failed (attempt %d), retrying in %ds: %s",
+                        study_index, retry + 1, wait, e,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    raise
+
+        if not result.synthesis:
+            synth_session = session_service.get_session(
+                app_name=APP_NAME, user_id="system", session_id=synth_session.id
+            )
+            if synth_session:
+                result.synthesis = synth_session.state.get(f"study_{study_index}_synthesis", "")
+                state.update(synth_session.state)
 
     logger.info("Study %d '%s' complete — synthesis: %d chars", study_index, title, len(result.synthesis))
     return result

@@ -12,7 +12,7 @@ Example output:
 """
 
 
-def build_question_unpacker(model: str = "gemini-2.0-flash") -> LlmAgent:
+def build_question_unpacker(model: str = "gemini-2.5-flash") -> LlmAgent:
     """Build an LlmAgent that decomposes a query into sub-questions."""
     return LlmAgent(
         name="question_unpacker",

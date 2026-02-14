@@ -1,7 +1,7 @@
 from google.adk.agents import LlmAgent
 
 
-def build_follow_up_identifier(num_research_outputs: int, model: str = "gemini-2.0-flash") -> LlmAgent:
+def build_follow_up_identifier(num_research_outputs: int, model: str = "gemini-2.5-flash") -> LlmAgent:
     """Build an LlmAgent that identifies gaps and generates follow-up questions.
 
     Args:
