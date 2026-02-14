@@ -39,6 +39,56 @@ def index():
     return render_template("index.html")
 
 
+# Estimated durations in seconds per depth (for countdown timer)
+_ESTIMATED_DURATION = {"QUICK": 90, "STANDARD": 300, "DEEP": 2400}
+
+
+@ui_api_bp.route("/api/research/validate", methods=["POST"])
+def validate_research():
+    """Validate research query clarity using Gemini. Body: {query, depth}."""
+    data = request.get_json(silent=True) or {}
+    query = (data.get("query") or "").strip()
+    depth_str = (data.get("depth") or "STANDARD").upper()
+
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+
+    # Only run deep validation for DEEP depth
+    if depth_str != "DEEP":
+        return jsonify({"clear": True, "feedback": "", "suggested_query": ""})
+
+    settings = current_app.config["SETTINGS"]
+    try:
+        from google import genai
+        from google.genai.types import GenerateContentConfig
+
+        client = genai.Client(api_key=settings.google_api_key)
+        resp = client.models.generate_content(
+            model="gemini-2.5-flash",
+            config=GenerateContentConfig(temperature=0.2, max_output_tokens=500),
+            contents=f"""You are a research clarity evaluator. A user wants to run a DEEP research pipeline (~40 minutes) on this query:
+
+"{query}"
+
+Evaluate whether this query is specific enough to produce good research results. Consider:
+- Is there a clear topic or question?
+- Is the scope reasonable (not too broad, not too narrow)?
+- Would a researcher know what to look for?
+
+Respond in this exact JSON format (no markdown fences):
+{{"clear": true/false, "feedback": "brief explanation if not clear", "suggested_query": "improved version if not clear, empty string if clear"}}
+
+Be lenient - only flag truly vague or ambiguous queries. Single-word topics like "AI" are too vague. But "AI in healthcare" is fine.""",
+        )
+        import json
+        from app.agents.json_utils import parse_json_response
+        result = parse_json_response(resp.text)
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Validation failed, allowing query through")
+        return jsonify({"clear": True, "feedback": "", "suggested_query": ""})
+
+
 @ui_api_bp.route("/api/research", methods=["POST"])
 def start_research():
     """Start a research job. Body: {query, depth} -> Returns {job_id} (202)."""
@@ -57,8 +107,9 @@ def start_research():
     job_id = create_job(query, depth_str)
     run_research_for_ui(job_id, query, depth, settings)
 
+    estimated = _ESTIMATED_DURATION.get(depth_str, 300)
     logger.info("Research job created: job=%s depth=%s query=%s", job_id, depth_str, query[:100])
-    return jsonify({"job_id": job_id}), 202
+    return jsonify({"job_id": job_id, "estimated_seconds": estimated}), 202
 
 
 @ui_api_bp.route("/api/status/<job_id>")

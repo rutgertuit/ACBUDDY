@@ -183,13 +183,44 @@ tailwind.config = {
     </div>
   </div>
 
+  <!-- ════════════ VALIDATION VIEW (DEEP only) ════════════ -->
+  <div id="view-validate" class="view flex-1">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+      <p class="text-xs text-primary">Query Review</p>
+    </header>
+    <div class="flex-1 flex flex-col items-center justify-center gap-5 px-2">
+      <div class="w-16 h-16 rounded-full bg-amber-50 flex items-center justify-center">
+        <span class="material-icons text-amber-400 text-3xl">rate_review</span>
+      </div>
+      <div class="text-base font-semibold text-slate-700 text-center">Let's sharpen this query</div>
+      <div id="validate-feedback" class="text-sm text-slate-500 text-center leading-relaxed px-2"></div>
+      <div id="validate-suggested" class="glass-panel rounded-xl p-4 w-full shadow-glass border border-white/60 hidden">
+        <div class="text-[10px] uppercase tracking-widest text-primary/60 font-semibold mb-2">Suggested query</div>
+        <div id="validate-suggested-text" class="text-sm text-slate-700 font-medium"></div>
+      </div>
+      <button id="validate-use-suggested" onclick="App.useSuggested()"
+              class="w-full py-3 rounded-xl bg-primary text-white text-center font-semibold text-sm hidden">
+        Use Suggested Query
+      </button>
+      <button onclick="App.forceStart()"
+              class="w-full py-3 rounded-xl border border-slate-200 text-slate-500 text-center font-medium text-sm hover:bg-slate-50">
+        Start Anyway With Original
+      </button>
+      <button onclick="App.showView('home')"
+              class="text-xs text-slate-400 hover:text-primary transition-colors">
+        Back to edit
+      </button>
+    </div>
+  </div>
+
   <!-- ════════════ PROGRESS VIEW ════════════ -->
   <div id="view-progress" class="view flex-1">
     <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
       <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
       <p class="text-xs text-primary">Researching...</p>
     </header>
-    <div class="flex-1 flex flex-col items-center justify-center gap-6">
+    <div class="flex-1 flex flex-col items-center justify-center gap-5">
       <!-- Orbital spinner -->
       <div class="relative w-28 h-28">
         <div class="absolute inset-0 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 1.2s linear infinite"></div>
@@ -199,8 +230,41 @@ tailwind.config = {
           <span class="material-icons text-primary text-2xl">search</span>
         </div>
       </div>
+
       <div id="phase-text" class="text-sm text-slate-500 text-center">Starting...</div>
-      <div id="elapsed" class="text-xs text-slate-400 font-mono tabular-nums">0:00</div>
+
+      <!-- Countdown + elapsed -->
+      <div class="flex items-center gap-6 text-center">
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Elapsed</div>
+          <div id="elapsed" class="text-lg font-mono font-medium text-slate-600 tabular-nums">0:00</div>
+        </div>
+        <div class="w-px h-8 bg-gradient-to-b from-transparent via-slate-200 to-transparent"></div>
+        <div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Est. Remaining</div>
+          <div id="countdown" class="text-lg font-mono font-medium text-primary tabular-nums">--:--</div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="w-full px-4">
+        <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div id="progress-bar" class="h-full bg-gradient-to-r from-primary to-cyan-300 rounded-full transition-all duration-1000" style="width:0%"></div>
+        </div>
+        <div class="flex justify-between mt-1">
+          <span id="progress-start" class="text-[10px] text-slate-400 font-mono">--:--</span>
+          <span id="progress-pct" class="text-[10px] text-primary font-semibold">0%</span>
+          <span id="progress-eta" class="text-[10px] text-slate-400 font-mono">--:--</span>
+        </div>
+      </div>
+
+      <!-- Mid-research status card -->
+      <div id="mid-check" class="glass-panel rounded-xl p-3 w-full shadow-glass border border-white/60 mt-2">
+        <div class="flex items-center gap-2">
+          <span id="mid-check-icon" class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+          <span id="mid-check-text" class="text-[11px] text-slate-500">Pipeline running normally</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -377,6 +441,8 @@ const App = (function() {
   /* ── ACTIVATE ── */
   const activateBtn = document.getElementById('activate-btn');
   const queryInput = document.getElementById('query-input');
+  let estimatedSeconds = 300;
+  let suggestedQuery = '';
 
   activateBtn.addEventListener('click', async () => {
     const query = queryInput.value.trim();
@@ -386,23 +452,85 @@ const App = (function() {
     lastQuery = query;
 
     try {
-      const res = await fetch('/api/research', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ query, depth: selectedDepth })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Request failed');
+      // For DEEP: validate query clarity first
+      if (selectedDepth === 'DEEP') {
+        document.getElementById('phase-text').textContent = 'Evaluating query clarity...';
+        const valRes = await fetch('/api/research/validate', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ query, depth: selectedDepth })
+        });
+        const val = await valRes.json();
 
-      currentJobId = data.job_id;
-      showView('progress');
-      startPolling();
+        if (!val.clear) {
+          // Show validation view
+          document.getElementById('validate-feedback').textContent = val.feedback || 'Your query could be more specific.';
+          const sugBox = document.getElementById('validate-suggested');
+          const sugBtn = document.getElementById('validate-use-suggested');
+          if (val.suggested_query) {
+            suggestedQuery = val.suggested_query;
+            document.getElementById('validate-suggested-text').textContent = val.suggested_query;
+            sugBox.classList.remove('hidden');
+            sugBtn.classList.remove('hidden');
+          } else {
+            sugBox.classList.add('hidden');
+            sugBtn.classList.add('hidden');
+          }
+          showView('validate');
+          activateBtn.disabled = false;
+          return;
+        }
+      }
+
+      await launchResearch(query);
     } catch(e) {
       alert('Failed to start: ' + e.message);
     } finally {
       activateBtn.disabled = false;
     }
   });
+
+  async function launchResearch(query) {
+    const res = await fetch('/api/research', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ query, depth: selectedDepth })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+
+    currentJobId = data.job_id;
+    estimatedSeconds = data.estimated_seconds || 300;
+
+    // Set start/ETA times in progress bar
+    const now = new Date();
+    const eta = new Date(now.getTime() + estimatedSeconds * 1000);
+    document.getElementById('progress-start').textContent = now.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',hour12:false});
+    document.getElementById('progress-eta').textContent = eta.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',hour12:false});
+
+    showView('progress');
+    startPolling();
+  }
+
+  function useSuggested() {
+    if (suggestedQuery) {
+      queryInput.value = suggestedQuery;
+      lastQuery = suggestedQuery;
+    }
+    forceStart();
+  }
+
+  async function forceStart() {
+    activateBtn.disabled = true;
+    try {
+      await launchResearch(lastQuery);
+    } catch(e) {
+      alert('Failed to start: ' + e.message);
+      showView('home');
+    } finally {
+      activateBtn.disabled = false;
+    }
+  }
 
   // Also activate on Enter
   queryInput.addEventListener('keydown', e => {
@@ -412,8 +540,8 @@ const App = (function() {
   /* ── Polling ── */
   function startPolling() {
     startTime = Date.now();
-    updateElapsed();
-    elapsedTimer = setInterval(updateElapsed, 1000);
+    updateTimers();
+    elapsedTimer = setInterval(updateTimers, 1000);
     poll();
     pollTimer = setInterval(poll, 3000);
   }
@@ -423,13 +551,26 @@ const App = (function() {
     pollTimer = null; elapsedTimer = null;
   }
 
-  function updateElapsed() {
-    if (!startTime) return;
-    const secs = Math.floor((Date.now() - startTime) / 1000);
-    document.getElementById('elapsed').textContent =
-      Math.floor(secs/60) + ':' + String(secs%60).padStart(2,'0');
+  function fmtTime(secs) {
+    if (secs < 0) secs = 0;
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return m + ':' + String(s).padStart(2, '0');
   }
 
+  function updateTimers() {
+    if (!startTime) return;
+    const elapsedSecs = (Date.now() - startTime) / 1000;
+    const remaining = Math.max(0, estimatedSeconds - elapsedSecs);
+    const pct = Math.min(99, (elapsedSecs / estimatedSeconds) * 100);
+
+    document.getElementById('elapsed').textContent = fmtTime(elapsedSecs);
+    document.getElementById('countdown').textContent = remaining > 0 ? fmtTime(remaining) : 'Any moment...';
+    document.getElementById('progress-bar').style.width = pct.toFixed(1) + '%';
+    document.getElementById('progress-pct').textContent = Math.floor(pct) + '%';
+  }
+
+  let lastPhase = '';
   async function poll() {
     if (!currentJobId) return;
     try {
@@ -437,10 +578,28 @@ const App = (function() {
       if (!res.ok) return;
       const data = await res.json();
 
-      document.getElementById('phase-text').textContent = data.phase || 'Working...';
+      const phase = data.phase || 'Working...';
+      document.getElementById('phase-text').textContent = phase;
+
+      // Mid-research status check
+      const midIcon = document.getElementById('mid-check-icon');
+      const midText = document.getElementById('mid-check-text');
+      if (data.status === 'running') {
+        if (phase !== lastPhase && lastPhase) {
+          midIcon.className = 'w-2 h-2 rounded-full bg-primary animate-pulse';
+          midText.textContent = 'Phase update: ' + phase;
+        } else {
+          midIcon.className = 'w-2 h-2 rounded-full bg-primary animate-pulse';
+          midText.textContent = 'Pipeline running normally';
+        }
+      }
+      lastPhase = phase;
 
       if (data.status === 'completed') {
         stopPolling();
+        document.getElementById('progress-bar').style.width = '100%';
+        document.getElementById('progress-pct').textContent = '100%';
+        document.getElementById('countdown').textContent = '0:00';
         lastDocId = data.elevenlabs_doc_id || '';
         lastDocName = 'Research: ' + (data.query||'').substring(0,60);
         document.getElementById('result-query').textContent = data.query;
@@ -448,11 +607,14 @@ const App = (function() {
         if (data.result_url) { link.href = data.result_url; link.style.display = 'block'; }
         else { link.style.display = 'none'; }
         renderResultAgents();
-        showView('result');
+        setTimeout(() => showView('result'), 600);
       } else if (data.status === 'failed') {
         stopPolling();
+        midIcon.className = 'w-2 h-2 rounded-full bg-red-400';
+        midText.textContent = 'Error: ' + (data.error || 'Unknown error');
+        midText.classList.add('text-red-500');
         document.getElementById('error-msg').textContent = data.error || 'An unknown error occurred';
-        showView('error');
+        setTimeout(() => showView('error'), 1500);
       }
     } catch(e) { /* keep polling */ }
   }
@@ -705,7 +867,7 @@ const App = (function() {
   setInterval(loadStats, 30000);
 
   /* ── Public API ── */
-  return { showView, retry, attachAndChat, openWidget, closeWidget, archiveChat, detachKB };
+  return { showView, retry, attachAndChat, openWidget, closeWidget, archiveChat, detachKB, useSuggested, forceStart };
 })();
 </script>
 </body>
