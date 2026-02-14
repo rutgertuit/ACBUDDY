@@ -64,8 +64,12 @@ def validate_research():
 
         client = genai.Client(api_key=settings.google_api_key)
         resp = client.models.generate_content(
-            model="gemini-2.5-flash",
-            config=GenerateContentConfig(temperature=0.2, max_output_tokens=500),
+            model="gemini-2.0-flash",
+            config=GenerateContentConfig(
+                temperature=0.2,
+                max_output_tokens=500,
+                response_mime_type="application/json",
+            ),
             contents=f"""You are a research clarity evaluator. A user wants to run a DEEP research pipeline (~40 minutes) on this query:
 
 "{query}"
@@ -75,23 +79,17 @@ Evaluate whether this query is specific enough to produce good research results.
 - Is the scope reasonable (not too broad, not too narrow)?
 - Would a researcher know what to look for?
 
-Respond in this exact JSON format (no markdown fences):
-{{"clear": true/false, "feedback": "brief explanation if not clear", "suggested_query": "improved version if not clear, empty string if clear"}}
+Respond in JSON: {{"clear": true/false, "feedback": "brief explanation if not clear", "suggested_query": "improved version if not clear, empty string if clear"}}
 
-Be lenient - only flag truly vague or ambiguous queries. Single-word topics like "AI" are too vague. But "AI in healthcare" is fine.""",
+Be reasonably strict — single-word or two-word topics like "AI" or "crypto" are too vague for a 40-minute DEEP research pipeline. But "AI in healthcare diagnostics" or "crypto regulation in the EU" are fine.""",
         )
         import json
-        from app.agents.json_utils import parse_json_response
-        result = parse_json_response(resp.text)
-        if result and isinstance(result, dict):
-            return jsonify({
-                "clear": bool(result.get("clear", True)),
-                "feedback": str(result.get("feedback", "")),
-                "suggested_query": str(result.get("suggested_query", "")),
-            })
-        # Fallback: try to find JSON in the raw text
-        logger.warning("Validation parse failed, raw: %s", resp.text[:300])
-        return jsonify({"clear": True, "feedback": "", "suggested_query": ""})
+        result = json.loads(resp.text)
+        return jsonify({
+            "clear": bool(result.get("clear", True)),
+            "feedback": str(result.get("feedback", "")),
+            "suggested_query": str(result.get("suggested_query", "")),
+        })
     except Exception as e:
         logger.exception("Validation failed, allowing query through")
         return jsonify({"clear": True, "feedback": "", "suggested_query": ""})
