@@ -2,232 +2,309 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ACBUDDY Research</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ACBUDDY Lab</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        "primary": "#0dccf2",
+        "primary-glow": "rgba(13,204,242,0.4)",
+        "bg": "#f5f8f8",
+        "chrome": "#e2e8e8",
+      },
+      fontFamily: { display: ["Inter","sans-serif"] },
+      borderRadius: { DEFAULT:"1rem", lg:"2rem", xl:"3rem", full:"9999px" },
+      boxShadow: {
+        glass: "0 8px 32px 0 rgba(31,38,135,0.07)",
+        glow: "0 0 20px rgba(13,204,242,0.5), 0 0 60px rgba(13,204,242,0.2)",
+        "inner-chrome": "inset 0 2px 4px 0 rgba(255,255,255,0.9), inset 0 -2px 4px 0 rgba(0,0,0,0.1)",
+        neumorphic: "20px 20px 60px #d1d9d9, -20px -20px 60px #ffffff",
+      },
+      backgroundImage: {
+        "chrome-gradient": "linear-gradient(135deg, #ffffff 0%, #f0f4f4 50%, #dce3e3 100%)",
+      },
+    },
+  },
+}
+</script>
 <style>
-:root {
-  --primary: #0dccf2;
-  --primary-dim: rgba(13,204,242,0.15);
-  --bg: #0a0e1a;
-  --surface: rgba(255,255,255,0.06);
-  --surface-hover: rgba(255,255,255,0.10);
-  --border: rgba(255,255,255,0.08);
-  --text: #e8eaf0;
-  --text-dim: #8a8fa8;
-  --danger: #f44;
-  --success: #0f6;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-body{
-  font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
-  min-height:100dvh;display:flex;flex-direction:column;align-items:center;
-  -webkit-font-smoothing:antialiased;
-}
-.app{width:100%;max-width:400px;min-height:100dvh;display:flex;flex-direction:column;padding:0 16px}
-.view{display:none;flex:1;flex-direction:column;padding-top:24px;padding-bottom:80px}
-.view.active{display:flex}
+  body { min-height: 100dvh; background: #f5f8f8; }
+  .glass-panel {
+    background: rgba(255,255,255,0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.8);
+  }
+  .view { display:none; flex-direction:column; }
+  .view.active { display:flex; }
+  @keyframes shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(300%)} }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  @keyframes pulse-bar { 0%,100%{transform:scaleY(0.5)} 50%{transform:scaleY(1)} }
 
-/* ── Header ── */
-.header{text-align:center;margin-bottom:24px}
-.header h1{font-size:20px;font-weight:700;letter-spacing:-.3px}
-.header h1 span{color:var(--primary)}
-.header p{font-size:13px;color:var(--text-dim);margin-top:4px}
+  /* Agent card colors */
+  .agent-cyan { --ac: #0dccf2; --ac-bg: rgba(13,204,242,0.08); --ac-border: rgba(13,204,242,0.25); }
+  .agent-amber { --ac: #f59e0b; --ac-bg: rgba(245,158,11,0.08); --ac-border: rgba(245,158,11,0.25); }
+  .agent-violet { --ac: #8b5cf6; --ac-bg: rgba(139,92,246,0.08); --ac-border: rgba(139,92,246,0.25); }
+  .agent-card {
+    background: var(--ac-bg);
+    border: 1px solid var(--ac-border);
+    border-radius: 1rem;
+    padding: 1rem 1.25rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .agent-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+  .agent-card .agent-icon { color: var(--ac); }
+  .agent-card .agent-accent { color: var(--ac); }
 
-/* ── Glass Card ── */
-.card{
-  background:var(--surface);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
-  border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px;
-}
+  /* Widget overlay */
+  .widget-overlay {
+    position: fixed; inset:0; z-index:200;
+    background: rgba(245,248,248,0.92);
+    backdrop-filter: blur(12px);
+    display: none; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .widget-overlay.active { display: flex; }
 
-/* ── Form ── */
-textarea{
-  width:100%;min-height:120px;background:rgba(255,255,255,0.04);border:1px solid var(--border);
-  border-radius:12px;padding:14px;color:var(--text);font-family:inherit;font-size:14px;
-  resize:vertical;outline:none;transition:border .2s;
-}
-textarea:focus{border-color:var(--primary)}
-textarea::placeholder{color:var(--text-dim)}
-
-.depth-selector{display:flex;gap:8px;margin-top:14px}
-.depth-btn{
-  flex:1;padding:10px 0;border:1px solid var(--border);border-radius:10px;
-  background:transparent;color:var(--text-dim);font-family:inherit;font-size:13px;
-  font-weight:500;cursor:pointer;transition:all .2s;
-}
-.depth-btn.active{border-color:var(--primary);color:var(--primary);background:var(--primary-dim)}
-.depth-btn:hover:not(.active){background:var(--surface-hover)}
-
-.launch-btn{
-  width:100%;margin-top:18px;padding:14px;border:none;border-radius:12px;
-  background:var(--primary);color:#000;font-family:inherit;font-size:15px;
-  font-weight:600;cursor:pointer;transition:opacity .2s;
-}
-.launch-btn:hover{opacity:.85}
-.launch-btn:disabled{opacity:.4;cursor:not-allowed}
-
-/* ── Progress ── */
-.progress-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px}
-.orbital{position:relative;width:100px;height:100px}
-.orbital-ring{
-  position:absolute;inset:0;border:2px solid var(--border);border-top-color:var(--primary);
-  border-radius:50%;animation:spin 1.2s linear infinite;
-}
-.orbital-ring:nth-child(2){inset:12px;animation-duration:1.8s;animation-direction:reverse;border-top-color:rgba(13,204,242,.5)}
-.orbital-ring:nth-child(3){inset:24px;animation-duration:2.4s;border-top-color:rgba(13,204,242,.25)}
-@keyframes spin{to{transform:rotate(360deg)}}
-.phase-text{font-size:14px;color:var(--text-dim);text-align:center}
-.elapsed{font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums}
-
-/* ── Result / Error ── */
-.result-icon{font-size:64px;color:var(--success);text-align:center;margin-bottom:12px}
-.error-icon{font-size:64px;color:var(--danger);text-align:center;margin-bottom:12px}
-.result-title{font-size:18px;font-weight:600;text-align:center;margin-bottom:8px}
-.result-sub{font-size:13px;color:var(--text-dim);text-align:center;margin-bottom:20px}
-.result-btn{
-  display:block;width:100%;padding:14px;border:none;border-radius:12px;
-  background:var(--primary);color:#000;font-family:inherit;font-size:15px;
-  font-weight:600;cursor:pointer;text-align:center;text-decoration:none;
-  margin-bottom:10px;transition:opacity .2s;
-}
-.result-btn:hover{opacity:.85}
-.result-btn.outline{
-  background:transparent;border:1px solid var(--border);color:var(--text);
-}
-.result-btn.outline:hover{background:var(--surface-hover)}
-
-/* ── Archive ── */
-.archive-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-dim)}
-.archive-empty .material-icons-round{font-size:48px;margin-bottom:8px;opacity:.4}
-.archive-card{
-  background:var(--surface);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
-  border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px;
-  cursor:pointer;transition:background .2s;
-}
-.archive-card:hover{background:var(--surface-hover)}
-.archive-card h3{font-size:14px;font-weight:600;margin-bottom:4px;line-height:1.4;
-  overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.archive-meta{display:flex;gap:12px;font-size:12px;color:var(--text-dim)}
-.archive-meta .tag{
-  background:var(--primary-dim);color:var(--primary);padding:2px 8px;border-radius:6px;
-  font-size:11px;font-weight:600;
-}
-
-/* ── Bottom Nav ── */
-.bottom-nav{
-  position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:400px;
-  display:flex;background:rgba(10,14,26,.92);backdrop-filter:blur(20px);
-  -webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);
-  padding:6px 0 env(safe-area-inset-bottom,8px);z-index:100;
-}
-.nav-item{
-  flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
-  padding:8px 0;color:var(--text-dim);font-size:11px;font-weight:500;
-  cursor:pointer;transition:color .2s;border:none;background:none;font-family:inherit;
-}
-.nav-item .material-icons-round{font-size:22px}
-.nav-item.active,.nav-item.active .material-icons-round{color:var(--primary)}
-
-/* ── Loading spinner ── */
-.loading-spinner{display:flex;justify-content:center;padding:40px}
-.loading-spinner::after{
-  content:'';width:28px;height:28px;border:2px solid var(--border);
-  border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;
-}
+  /* Settings KB item */
+  .kb-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.75rem 1rem; border-radius: 0.75rem;
+    background: rgba(255,255,255,0.5); border: 1px solid rgba(0,0,0,0.04);
+    margin-bottom: 0.5rem;
+  }
 </style>
 </head>
-<body>
-<div class="app">
+<body class="font-display text-slate-600 flex flex-col items-center overflow-x-hidden">
 
-  <!-- ═══ HOME VIEW ═══ -->
-  <div id="view-home" class="view active">
-    <div class="header">
-      <h1>AC<span>BUDDY</span></h1>
-      <p>AI Research Assistant</p>
-    </div>
-    <div class="card">
-      <textarea id="query-input" placeholder="What would you like to research?"></textarea>
-      <div class="depth-selector">
-        <button class="depth-btn" data-depth="QUICK">Quick</button>
-        <button class="depth-btn active" data-depth="STANDARD">Standard</button>
-        <button class="depth-btn" data-depth="DEEP">Deep</button>
-      </div>
-      <button id="launch-btn" class="launch-btn">Activate Research</button>
-    </div>
-  </div>
-
-  <!-- ═══ PROGRESS VIEW ═══ -->
-  <div id="view-progress" class="view">
-    <div class="header">
-      <h1>AC<span>BUDDY</span></h1>
-      <p>Researching...</p>
-    </div>
-    <div class="progress-center">
-      <div class="orbital">
-        <div class="orbital-ring"></div>
-        <div class="orbital-ring"></div>
-        <div class="orbital-ring"></div>
-      </div>
-      <div id="phase-text" class="phase-text">Starting...</div>
-      <div id="elapsed" class="elapsed">0:00</div>
-    </div>
-  </div>
-
-  <!-- ═══ RESULT VIEW ═══ -->
-  <div id="view-result" class="view">
-    <div class="header">
-      <h1>AC<span>BUDDY</span></h1>
-    </div>
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center">
-      <div class="result-icon"><span class="material-icons-round" style="font-size:inherit;color:inherit">check_circle</span></div>
-      <div class="result-title">Research Complete</div>
-      <div id="result-query" class="result-sub"></div>
-      <a id="result-link" class="result-btn" href="#" target="_blank" rel="noopener">View Results</a>
-      <button class="result-btn outline" onclick="showView('home')">New Research</button>
-    </div>
-  </div>
-
-  <!-- ═══ ERROR VIEW ═══ -->
-  <div id="view-error" class="view">
-    <div class="header">
-      <h1>AC<span>BUDDY</span></h1>
-    </div>
-    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center">
-      <div class="error-icon"><span class="material-icons-round" style="font-size:inherit;color:inherit">error</span></div>
-      <div class="result-title">Research Failed</div>
-      <div id="error-msg" class="result-sub"></div>
-      <button class="result-btn" onclick="retryResearch()">Retry</button>
-      <button class="result-btn outline" onclick="showView('home')">New Research</button>
-    </div>
-  </div>
-
-  <!-- ═══ ARCHIVE VIEW ═══ -->
-  <div id="view-archive" class="view">
-    <div class="header">
-      <h1>AC<span>BUDDY</span></h1>
-      <p>Past Research</p>
-    </div>
-    <div id="archive-list"></div>
-  </div>
-
-  <!-- ═══ BOTTOM NAV ═══ -->
-  <nav class="bottom-nav">
-    <button class="nav-item" data-view="archive">
-      <span class="material-icons-round">folder_open</span>Archive
-    </button>
-    <button class="nav-item active" data-view="home">
-      <span class="material-icons-round">search</span>Research
-    </button>
-    <button class="nav-item" data-view="settings">
-      <span class="material-icons-round">settings</span>Settings
-    </button>
-  </nav>
+<!-- Background blurs -->
+<div class="fixed inset-0 pointer-events-none overflow-hidden">
+  <div class="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-primary/5 rounded-full blur-[100px]"></div>
+  <div class="absolute bottom-[-10%] right-[-10%] w-[400px] h-[400px] bg-primary/10 rounded-full blur-[80px]"></div>
+  <div class="absolute inset-0 opacity-[0.03]" style="background-image:radial-gradient(#0dccf2 1px,transparent 1px);background-size:40px 40px"></div>
 </div>
 
+<main class="relative z-10 w-full max-w-md min-h-screen flex flex-col px-6 sm:px-8 pb-28">
+
+  <!-- ════════════ HOME VIEW ════════════ -->
+  <div id="view-home" class="view active flex-1">
+    <!-- Header -->
+    <header class="flex flex-col items-center mt-6 space-y-2 opacity-80">
+      <div class="flex items-center space-x-2 text-[10px] tracking-[0.2em] font-medium uppercase text-slate-400">
+        <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+        <span>System Online</span>
+      </div>
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+      <div class="flex items-center space-x-12 mt-4">
+        <div class="flex flex-col items-center">
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Researching</span>
+          <div class="flex items-center space-x-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+            <span id="stat-researching" class="text-lg font-medium text-slate-700">00</span>
+          </div>
+        </div>
+        <div class="w-px h-8 bg-gradient-to-b from-transparent via-slate-200 to-transparent"></div>
+        <div class="flex flex-col items-center">
+          <span class="text-[10px] text-slate-400 uppercase tracking-wider mb-1">Completed</span>
+          <div class="flex items-center space-x-1">
+            <span class="material-icons text-[10px] text-primary">check_circle</span>
+            <span id="stat-completed" class="text-lg font-medium text-slate-700">0</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Input + Button -->
+    <div class="flex-1 flex flex-col items-center justify-center w-full space-y-10 -mt-4">
+      <!-- Glass input panel -->
+      <div class="w-full relative group transform transition-all duration-300 hover:scale-[1.01]">
+        <div class="absolute -inset-1 bg-gradient-to-r from-primary/20 to-slate-200/30 rounded-[2rem] blur-md opacity-50 group-hover:opacity-100 transition duration-500"></div>
+        <div class="glass-panel relative rounded-[2rem] flex flex-col items-start px-7 py-5 shadow-glass border border-white/60">
+          <div class="flex items-center w-full mb-2">
+            <span class="material-icons text-primary/80 mr-3 text-xl">mic_none</span>
+            <span class="text-[10px] uppercase tracking-widest text-primary/60 font-semibold">Voice Input Active</span>
+          </div>
+          <input id="query-input" type="text" class="bg-transparent border-none w-full text-slate-800 placeholder-slate-400 focus:ring-0 text-lg tracking-wide font-light p-0 h-10" placeholder="Awaiting Command...">
+          <div class="w-full h-0.5 bg-slate-100 mt-3 relative overflow-hidden rounded-full">
+            <div class="absolute top-0 left-0 h-full w-1/3 bg-primary/50" style="animation:shimmer 2s infinite"></div>
+          </div>
+          <!-- Depth pills -->
+          <div id="depth-selector" class="flex gap-2 mt-4 w-full">
+            <button class="depth-btn flex-1 py-2 rounded-xl text-xs font-medium tracking-wide border border-slate-200 text-slate-400 transition-all hover:border-primary/30" data-depth="QUICK">Quick</button>
+            <button class="depth-btn flex-1 py-2 rounded-xl text-xs font-medium tracking-wide border border-primary text-primary bg-primary/10 transition-all" data-depth="STANDARD">Standard</button>
+            <button class="depth-btn flex-1 py-2 rounded-xl text-xs font-medium tracking-wide border border-slate-200 text-slate-400 transition-all hover:border-primary/30" data-depth="DEEP">Deep</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Neumorphic ACTIVATE button -->
+      <div class="relative flex items-center justify-center">
+        <div class="w-56 h-56 rounded-full bg-chrome-gradient shadow-neumorphic flex items-center justify-center relative">
+          <div class="absolute inset-0 rounded-full border border-slate-200/50"></div>
+          <div class="absolute inset-2 rounded-full border border-slate-100"></div>
+          <button id="activate-btn" class="w-40 h-40 rounded-full bg-white shadow-inner-chrome flex items-center justify-center relative group active:scale-95 transition-transform duration-200 overflow-hidden">
+            <div class="absolute inset-0 bg-gradient-to-tr from-slate-50 to-slate-100 z-0"></div>
+            <div class="absolute w-full h-full opacity-0 group-hover:opacity-100 transition-opacity duration-700 bg-primary/5 blur-xl"></div>
+            <div class="relative z-10 flex flex-col items-center justify-center">
+              <div class="w-20 h-20 rounded-full bg-gradient-to-br from-primary to-cyan-300 shadow-glow flex items-center justify-center mb-2 group-hover:scale-105 transition-transform duration-300">
+                <span class="material-icons text-white text-4xl drop-shadow-md">fingerprint</span>
+              </div>
+              <span class="text-[10px] font-semibold tracking-[0.25em] text-slate-400 group-hover:text-primary transition-colors duration-300 mt-2">ACTIVATE</span>
+            </div>
+            <div class="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-white/40 to-transparent pointer-events-none rounded-t-full"></div>
+          </button>
+          <div class="absolute inset-0 pointer-events-none" style="animation:spin 8s linear infinite">
+            <div class="absolute top-5 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-primary/60 blur-[1px]"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Faux status bar -->
+      <div class="flex justify-between w-full px-6 text-[10px] text-slate-400 font-mono opacity-60">
+        <span>CPU: 12%</span>
+        <span>MEM: 4.2GB</span>
+        <span>NET: 1GBPS</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════ PROGRESS VIEW ════════════ -->
+  <div id="view-progress" class="view flex-1">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+      <p class="text-xs text-primary">Researching...</p>
+    </header>
+    <div class="flex-1 flex flex-col items-center justify-center gap-6">
+      <!-- Orbital spinner -->
+      <div class="relative w-28 h-28">
+        <div class="absolute inset-0 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 1.2s linear infinite"></div>
+        <div class="absolute inset-3 border-2 border-slate-200 border-t-primary/50 rounded-full" style="animation:spin 1.8s linear infinite reverse"></div>
+        <div class="absolute inset-6 border-2 border-slate-200 border-t-primary/25 rounded-full" style="animation:spin 2.4s linear infinite"></div>
+        <div class="absolute inset-0 flex items-center justify-center">
+          <span class="material-icons text-primary text-2xl">search</span>
+        </div>
+      </div>
+      <div id="phase-text" class="text-sm text-slate-500 text-center">Starting...</div>
+      <div id="elapsed" class="text-xs text-slate-400 font-mono tabular-nums">0:00</div>
+    </div>
+  </div>
+
+  <!-- ════════════ RESULT VIEW ════════════ -->
+  <div id="view-result" class="view flex-1">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+    </header>
+    <div class="flex-1 flex flex-col items-center justify-center gap-4 px-2">
+      <span class="material-icons text-6xl text-emerald-400">check_circle</span>
+      <div class="text-lg font-semibold text-slate-700">Research Complete</div>
+      <div id="result-query" class="text-sm text-slate-400 text-center"></div>
+      <a id="result-link" href="#" target="_blank" rel="noopener"
+         class="w-full py-3 rounded-xl bg-primary text-white text-center font-semibold text-sm tracking-wide hover:opacity-85 transition-opacity block">
+        View Full Report
+      </a>
+
+      <!-- Agent cards for attaching KB -->
+      <div class="w-full mt-4 space-y-2">
+        <p class="text-[10px] uppercase tracking-widest text-slate-400 text-center mb-2">Chat about this research</p>
+        <div id="result-agents" class="space-y-2"></div>
+      </div>
+
+      <button onclick="App.showView('home')"
+              class="w-full py-3 rounded-xl border border-slate-200 text-slate-500 text-center font-medium text-sm hover:bg-slate-50 transition-colors mt-2">
+        New Research
+      </button>
+    </div>
+  </div>
+
+  <!-- ════════════ ERROR VIEW ════════════ -->
+  <div id="view-error" class="view flex-1">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+    </header>
+    <div class="flex-1 flex flex-col items-center justify-center gap-4">
+      <span class="material-icons text-6xl text-red-400">error</span>
+      <div class="text-lg font-semibold text-slate-700">Research Failed</div>
+      <div id="error-msg" class="text-sm text-slate-400 text-center px-4"></div>
+      <button onclick="App.retry()" class="w-full py-3 rounded-xl bg-primary text-white text-center font-semibold text-sm">Retry</button>
+      <button onclick="App.showView('home')" class="w-full py-3 rounded-xl border border-slate-200 text-slate-500 text-center font-medium text-sm">New Research</button>
+    </div>
+  </div>
+
+  <!-- ════════════ CHAT VIEW ════════════ -->
+  <div id="view-chat" class="view flex-1">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <div class="flex items-center space-x-2 text-[10px] tracking-[0.2em] font-medium uppercase text-slate-400">
+        <span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+        <span>Agents Online</span>
+      </div>
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Research Agents</h1>
+    </header>
+    <div id="chat-agents" class="mt-6 space-y-3"></div>
+  </div>
+
+  <!-- ════════════ ARCHIVE VIEW ════════════ -->
+  <div id="view-archive" class="view flex-1">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+      <p class="text-xs text-slate-400">Past Research</p>
+    </header>
+    <div id="archive-list" class="mt-4 space-y-2"></div>
+  </div>
+
+  <!-- ════════════ SETTINGS VIEW ════════════ -->
+  <div id="view-settings" class="view flex-1">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+      <p class="text-xs text-slate-400">Knowledge Base Management</p>
+    </header>
+    <div id="settings-agents" class="mt-6 space-y-6"></div>
+  </div>
+
+</main>
+
+<!-- ════════════ BOTTOM NAV ════════════ -->
+<nav id="bottom-nav" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
+  <div class="glass-panel px-8 py-3 rounded-full flex items-center justify-between w-[320px] shadow-glass relative">
+    <button class="nav-btn p-2 rounded-full hover:bg-slate-100 transition-colors group" data-view="archive">
+      <span class="material-icons text-slate-400 group-hover:text-primary transition-colors text-2xl">inventory_2</span>
+    </button>
+    <!-- Center raised chat button -->
+    <button class="nav-btn relative -top-6 p-4 rounded-full bg-gradient-to-b from-white to-slate-100 shadow-lg border border-slate-100 group hover:-translate-y-1 transition-transform duration-300" data-view="chat">
+      <div class="absolute inset-0 bg-primary/20 blur-md rounded-full group-hover:bg-primary/40 transition-colors"></div>
+      <div class="relative z-10 w-10 h-10 flex items-center justify-center">
+        <div class="w-full flex items-center justify-center gap-[2px] h-4">
+          <div class="w-[3px] bg-primary rounded-full" style="height:100%;animation:pulse-bar 1s ease-in-out infinite"></div>
+          <div class="w-[3px] bg-primary rounded-full" style="height:80%;animation:pulse-bar 1.2s ease-in-out infinite 0.1s"></div>
+          <div class="w-[3px] bg-primary rounded-full" style="height:60%;animation:pulse-bar 0.8s ease-in-out infinite 0.2s"></div>
+          <div class="w-[3px] bg-primary rounded-full" style="height:90%;animation:pulse-bar 1.1s ease-in-out infinite 0.3s"></div>
+        </div>
+      </div>
+    </button>
+    <button class="nav-btn p-2 rounded-full hover:bg-slate-100 transition-colors group" data-view="settings">
+      <span class="material-icons text-slate-400 group-hover:text-primary transition-colors text-2xl">settings</span>
+    </button>
+  </div>
+</nav>
+
+<!-- ════════════ WIDGET OVERLAY ════════════ -->
+<div id="widget-overlay" class="widget-overlay">
+  <button onclick="App.closeWidget()" class="absolute top-6 right-6 z-10 p-2 rounded-full hover:bg-slate-200 transition-colors">
+    <span class="material-icons text-slate-500 text-3xl">close</span>
+  </button>
+  <div id="widget-agent-name" class="text-sm tracking-widest uppercase font-light text-slate-500 mb-4"></div>
+  <div id="widget-container" class="w-full max-w-md h-[70vh] flex items-center justify-center"></div>
+</div>
+
+<!-- ElevenLabs widget SDK -->
+<script src="https://unpkg.com/@11labs/convai-widget-embed" type="module"></script>
+
 <script>
-(function(){
+const App = (function() {
   /* ── State ── */
   let currentView = 'home';
   let selectedDepth = 'STANDARD';
@@ -236,50 +313,72 @@ textarea::placeholder{color:var(--text-dim)}
   let elapsedTimer = null;
   let startTime = null;
   let lastQuery = '';
+  let lastDocId = '';
+  let lastDocName = '';
+  let agentsData = [];
+
+  /* ── Helpers ── */
+  function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
 
   /* ── View Navigation ── */
-  window.showView = function(name) {
+  function showView(name) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
     const el = document.getElementById('view-' + name);
     if (el) el.classList.add('active');
     currentView = name;
 
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    const navBtn = document.querySelector(`.nav-item[data-view="${name}"]`);
-    if (navBtn) navBtn.classList.add('active');
+    // Highlight active nav
+    document.querySelectorAll('.nav-btn').forEach(b => {
+      const icon = b.querySelector('.material-icons');
+      if (icon) icon.classList.remove('text-primary');
+      if (icon) icon.classList.add('text-slate-400');
+    });
+    const navBtn = document.querySelector(`.nav-btn[data-view="${name}"]`);
+    if (navBtn) {
+      const icon = navBtn.querySelector('.material-icons');
+      if (icon) { icon.classList.remove('text-slate-400'); icon.classList.add('text-primary'); }
+    }
 
     if (name === 'archive') loadArchive();
+    if (name === 'chat') loadChatAgents();
+    if (name === 'settings') loadSettings();
+    if (name === 'home') loadStats();
     if (name !== 'progress') stopPolling();
-  };
+  }
 
-  document.querySelectorAll('.nav-item').forEach(btn => {
+  /* ── Bottom nav ── */
+  document.querySelectorAll('.nav-btn').forEach(btn => {
     btn.addEventListener('click', () => showView(btn.dataset.view));
   });
 
-  /* ── Depth Selector ── */
+  /* ── Depth selector ── */
   document.querySelectorAll('.depth-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.depth-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+      document.querySelectorAll('.depth-btn').forEach(b => {
+        b.classList.remove('border-primary','text-primary','bg-primary/10');
+        b.classList.add('border-slate-200','text-slate-400');
+      });
+      btn.classList.remove('border-slate-200','text-slate-400');
+      btn.classList.add('border-primary','text-primary','bg-primary/10');
       selectedDepth = btn.dataset.depth;
     });
   });
 
-  /* ── Launch Research ── */
-  const launchBtn = document.getElementById('launch-btn');
+  /* ── ACTIVATE ── */
+  const activateBtn = document.getElementById('activate-btn');
   const queryInput = document.getElementById('query-input');
 
-  launchBtn.addEventListener('click', async () => {
+  activateBtn.addEventListener('click', async () => {
     const query = queryInput.value.trim();
-    if (!query) return;
+    if (!query) { queryInput.focus(); return; }
 
-    launchBtn.disabled = true;
+    activateBtn.disabled = true;
     lastQuery = query;
 
     try {
       const res = await fetch('/api/research', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ query, depth: selectedDepth })
       });
       const data = await res.json();
@@ -288,11 +387,16 @@ textarea::placeholder{color:var(--text-dim)}
       currentJobId = data.job_id;
       showView('progress');
       startPolling();
-    } catch (e) {
-      alert('Failed to start research: ' + e.message);
+    } catch(e) {
+      alert('Failed to start: ' + e.message);
     } finally {
-      launchBtn.disabled = false;
+      activateBtn.disabled = false;
     }
+  });
+
+  // Also activate on Enter
+  queryInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') activateBtn.click();
   });
 
   /* ── Polling ── */
@@ -301,22 +405,19 @@ textarea::placeholder{color:var(--text-dim)}
     updateElapsed();
     elapsedTimer = setInterval(updateElapsed, 1000);
     poll();
-    pollTimer = setInterval(poll, 4000);
+    pollTimer = setInterval(poll, 3000);
   }
 
   function stopPolling() {
-    clearInterval(pollTimer);
-    clearInterval(elapsedTimer);
-    pollTimer = null;
-    elapsedTimer = null;
+    clearInterval(pollTimer); clearInterval(elapsedTimer);
+    pollTimer = null; elapsedTimer = null;
   }
 
   function updateElapsed() {
     if (!startTime) return;
     const secs = Math.floor((Date.now() - startTime) / 1000);
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    document.getElementById('elapsed').textContent = m + ':' + String(s).padStart(2, '0');
+    document.getElementById('elapsed').textContent =
+      Math.floor(secs/60) + ':' + String(secs%60).padStart(2,'0');
   }
 
   async function poll() {
@@ -330,72 +431,252 @@ textarea::placeholder{color:var(--text-dim)}
 
       if (data.status === 'completed') {
         stopPolling();
+        lastDocId = data.elevenlabs_doc_id || '';
+        lastDocName = 'Research: ' + (data.query||'').substring(0,60);
         document.getElementById('result-query').textContent = data.query;
         const link = document.getElementById('result-link');
-        if (data.result_url) {
-          link.href = data.result_url;
-          link.style.display = 'block';
-        } else {
-          link.style.display = 'none';
-        }
+        if (data.result_url) { link.href = data.result_url; link.style.display = 'block'; }
+        else { link.style.display = 'none'; }
+        renderResultAgents();
         showView('result');
       } else if (data.status === 'failed') {
         stopPolling();
         document.getElementById('error-msg').textContent = data.error || 'An unknown error occurred';
         showView('error');
       }
-    } catch (e) {
-      /* network blip — keep polling */
+    } catch(e) { /* keep polling */ }
+  }
+
+  /* ── Result: agent cards ── */
+  async function renderResultAgents() {
+    const container = document.getElementById('result-agents');
+    if (!lastDocId) {
+      container.innerHTML = '<p class="text-xs text-slate-400 text-center">No KB document available for chat</p>';
+      return;
+    }
+    try {
+      const res = await fetch('/api/agents');
+      const data = await res.json();
+      agentsData = data.agents || [];
+      container.innerHTML = agentsData.map(a => `
+        <div class="agent-card agent-${esc(a.color)}" onclick="App.attachAndChat('${esc(a.slug)}','${esc(a.agent_id)}','${esc(a.name)}')">
+          <div class="flex items-center gap-3">
+            <span class="material-icons agent-icon text-2xl">${esc(a.icon)}</span>
+            <div class="flex-1 min-w-0">
+              <div class="font-semibold text-slate-700 text-sm">${esc(a.name)}</div>
+              <div class="text-[11px] text-slate-400 truncate">${esc(a.subtitle)}</div>
+            </div>
+            <span class="material-icons text-slate-300 text-lg">arrow_forward</span>
+          </div>
+        </div>
+      `).join('');
+    } catch(e) {
+      container.innerHTML = '<p class="text-xs text-red-400 text-center">Failed to load agents</p>';
     }
   }
 
-  /* ── Retry ── */
-  window.retryResearch = function() {
-    queryInput.value = lastQuery;
-    showView('home');
-  };
+  /* ── Attach KB + open widget ── */
+  async function attachAndChat(slug, agentId, agentName) {
+    if (!agentId) { alert('Agent not configured'); return; }
+    if (lastDocId) {
+      try {
+        await fetch(`/api/agents/${slug}/attach`, {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ doc_id: lastDocId, doc_name: lastDocName })
+        });
+      } catch(e) { console.warn('Attach failed:', e); }
+    }
+    openWidget(agentId, agentName);
+  }
+
+  /* ── Chat view: agent cards ── */
+  async function loadChatAgents() {
+    const container = document.getElementById('chat-agents');
+    container.innerHTML = '<div class="flex justify-center py-8"><div class="w-6 h-6 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>';
+
+    try {
+      const res = await fetch('/api/agents');
+      const data = await res.json();
+      agentsData = data.agents || [];
+
+      container.innerHTML = agentsData.map(a => `
+        <div class="agent-card agent-${esc(a.color)}" onclick="App.openWidget('${esc(a.agent_id)}','${esc(a.name)}')">
+          <div class="flex items-center gap-3">
+            <span class="material-icons agent-icon text-3xl">${esc(a.icon)}</span>
+            <div class="flex-1 min-w-0">
+              <div class="font-semibold text-slate-700">${esc(a.name)}</div>
+              <div class="text-[11px] text-slate-400">${esc(a.subtitle)}</div>
+              <div class="text-[10px] text-slate-400 mt-1">
+                <span class="agent-accent font-semibold">${a.kb_count}</span> KB docs
+              </div>
+            </div>
+            <span class="material-icons text-slate-300 text-xl">chat</span>
+          </div>
+        </div>
+      `).join('');
+    } catch(e) {
+      container.innerHTML = '<p class="text-sm text-red-400 text-center py-8">Failed to load agents</p>';
+    }
+  }
+
+  /* ── Widget ── */
+  function openWidget(agentId, agentName) {
+    if (!agentId) { alert('Agent not configured'); return; }
+    document.getElementById('widget-agent-name').textContent = agentName || 'Agent';
+    const wc = document.getElementById('widget-container');
+    wc.innerHTML = `<elevenlabs-convai agent-id="${esc(agentId)}"></elevenlabs-convai>`;
+    document.getElementById('widget-overlay').classList.add('active');
+  }
+
+  function closeWidget() {
+    document.getElementById('widget-overlay').classList.remove('active');
+    document.getElementById('widget-container').innerHTML = '';
+  }
 
   /* ── Archive ── */
   async function loadArchive() {
     const container = document.getElementById('archive-list');
-    container.innerHTML = '<div class="loading-spinner"></div>';
+    container.innerHTML = '<div class="flex justify-center py-8"><div class="w-6 h-6 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>';
 
     try {
       const res = await fetch('/api/archive');
       const data = await res.json();
       const results = data.results || [];
 
-      if (results.length === 0) {
-        container.innerHTML = '<div class="archive-empty"><span class="material-icons-round">science</span><p>No research yet</p></div>';
+      if (!results.length) {
+        container.innerHTML = '<div class="flex flex-col items-center justify-center py-12 text-slate-400"><span class="material-icons text-4xl mb-2 opacity-40">science</span><p class="text-sm">No research yet</p></div>';
         return;
       }
 
       container.innerHTML = results.map(r => {
-        const date = r.completed_at ? new Date(r.completed_at).toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+        const date = r.completed_at ? new Date(r.completed_at).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
         const studies = r.num_studies ? r.num_studies + ' studies' : '';
-        return `<div class="archive-card" onclick="window.open('${escapeAttr(r.result_url)}','_blank')">
-          <h3>${escapeHtml(r.query || 'Untitled')}</h3>
-          <div class="archive-meta">
-            <span class="tag">${escapeHtml(r.depth || '')}</span>
-            ${studies ? '<span>' + studies + '</span>' : ''}
-            ${date ? '<span>' + date + '</span>' : ''}
+        const docId = r.elevenlabs_doc_id || '';
+        return `<div class="glass-panel rounded-xl p-4 shadow-glass border border-white/60 space-y-2">
+          <div class="cursor-pointer" onclick="window.open('${esc(r.result_url||'')}','_blank')">
+            <h3 class="font-semibold text-sm text-slate-700 line-clamp-2">${esc(r.query||'Untitled')}</h3>
+            <div class="flex gap-3 text-[11px] text-slate-400 mt-1">
+              <span class="bg-primary/10 text-primary px-2 py-0.5 rounded-md font-semibold">${esc(r.depth||'')}</span>
+              ${studies ? '<span>'+studies+'</span>' : ''}
+              ${date ? '<span>'+date+'</span>' : ''}
+            </div>
           </div>
+          ${docId ? `<button onclick="App.archiveChat('${esc(docId)}','${esc((r.query||'').substring(0,60))}')" class="text-[11px] text-primary font-medium flex items-center gap-1 hover:underline"><span class="material-icons text-sm">chat</span>Chat about this</button>` : ''}
         </div>`;
       }).join('');
-    } catch (e) {
-      container.innerHTML = '<div class="archive-empty"><span class="material-icons-round">cloud_off</span><p>Failed to load archive</p></div>';
+    } catch(e) {
+      container.innerHTML = '<div class="flex flex-col items-center justify-center py-12 text-slate-400"><span class="material-icons text-4xl mb-2 opacity-40">cloud_off</span><p class="text-sm">Failed to load archive</p></div>';
     }
   }
 
-  function escapeHtml(s) {
-    const d = document.createElement('div');
-    d.textContent = s || '';
-    return d.innerHTML;
+  /* ── Archive chat: show agent picker ── */
+  function archiveChat(docId, docName) {
+    lastDocId = docId;
+    lastDocName = 'Research: ' + docName;
+    // Show result view with agent cards
+    document.getElementById('result-query').textContent = docName;
+    document.getElementById('result-link').style.display = 'none';
+    renderResultAgents();
+    showView('result');
   }
 
-  function escapeAttr(s) {
-    return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  /* ── Settings ── */
+  async function loadSettings() {
+    const container = document.getElementById('settings-agents');
+    container.innerHTML = '<div class="flex justify-center py-8"><div class="w-6 h-6 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>';
+
+    try {
+      const res = await fetch('/api/agents');
+      const data = await res.json();
+      agentsData = data.agents || [];
+
+      let html = '';
+      for (const a of agentsData) {
+        html += `<div class="space-y-2">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="material-icons text-lg" style="color:var(--ac)">${esc(a.icon)}</span>
+            <span class="font-semibold text-sm text-slate-700">${esc(a.name)}</span>
+            <span class="text-[10px] text-slate-400 ml-auto">${a.kb_count} docs</span>
+          </div>
+          <div id="settings-kb-${a.slug}" class="space-y-1">
+            <div class="text-[11px] text-slate-400 py-2 text-center">Loading...</div>
+          </div>
+        </div>`;
+      }
+      container.innerHTML = html;
+
+      // Load KB for each agent
+      for (const a of agentsData) {
+        loadAgentKB(a.slug);
+      }
+    } catch(e) {
+      container.innerHTML = '<p class="text-sm text-red-400 text-center py-8">Failed to load agents</p>';
+    }
   }
+
+  async function loadAgentKB(slug) {
+    const container = document.getElementById('settings-kb-' + slug);
+    try {
+      const res = await fetch(`/api/agents/${slug}/kb`);
+      const data = await res.json();
+      const docs = data.documents || [];
+
+      if (!docs.length) {
+        container.innerHTML = '<div class="text-[11px] text-slate-400 py-2 text-center">No documents attached</div>';
+        return;
+      }
+
+      container.innerHTML = docs.map(d => {
+        const id = d.id || d.document_id || '';
+        const name = d.name || id;
+        return `<div class="kb-item">
+          <div class="flex-1 min-w-0">
+            <div class="text-xs text-slate-600 truncate">${esc(name)}</div>
+            <div class="text-[10px] text-slate-400 font-mono truncate">${esc(id)}</div>
+          </div>
+          <button onclick="App.detachKB('${esc(slug)}','${esc(id)}')" class="ml-2 p-1 rounded-lg hover:bg-red-50 transition-colors group" title="Detach">
+            <span class="material-icons text-slate-300 group-hover:text-red-400 text-lg">link_off</span>
+          </button>
+        </div>`;
+      }).join('');
+    } catch(e) {
+      container.innerHTML = '<div class="text-[11px] text-red-400 py-2 text-center">Failed to load</div>';
+    }
+  }
+
+  async function detachKB(slug, docId) {
+    if (!confirm('Detach this document?')) return;
+    try {
+      await fetch(`/api/agents/${slug}/kb/${docId}`, { method: 'DELETE' });
+      loadAgentKB(slug);
+    } catch(e) {
+      alert('Failed to detach: ' + e.message);
+    }
+  }
+
+  /* ── Stats ── */
+  async function loadStats() {
+    try {
+      const res = await fetch('/api/stats');
+      const data = await res.json();
+      document.getElementById('stat-researching').textContent = String(data.researching||0).padStart(2,'0');
+      document.getElementById('stat-completed').textContent = data.completed || 0;
+    } catch(e) { /* silent */ }
+  }
+
+  /* ── Retry ── */
+  function retry() {
+    queryInput.value = lastQuery;
+    showView('home');
+  }
+
+  /* ── Init ── */
+  loadStats();
+  setInterval(loadStats, 30000);
+
+  /* ── Public API ── */
+  return { showView, retry, attachAndChat, openWidget, closeWidget, archiveChat, detachKB };
 })();
 </script>
 </body>

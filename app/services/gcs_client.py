@@ -290,6 +290,7 @@ def publish_results_with_metadata(
     depth: str,
     job_id: str,
     bucket_name: str,
+    elevenlabs_doc_id: str = "",
 ) -> str:
     """Generate HTML, upload it, then write a metadata JSON alongside it.
 
@@ -310,6 +311,29 @@ def publish_results_with_metadata(
         "completed_at": now,
         "result_url": result_url,
         "num_studies": num_studies,
+        "elevenlabs_doc_id": elevenlabs_doc_id,
     }
     upload_metadata(metadata, job_id, bucket_name)
     return result_url
+
+
+def update_metadata(job_id: str, bucket_name: str, updates: dict) -> None:
+    """Merge updates into an existing metadata JSON in GCS."""
+    if not bucket_name:
+        return
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(f"results/{job_id}_meta.json")
+        if not blob.exists():
+            logger.warning("Metadata blob not found for job %s, writing fresh", job_id)
+            blob.upload_from_string(json.dumps(updates), content_type="application/json")
+            return
+
+        existing = json.loads(blob.download_as_text())
+        existing.update(updates)
+        blob.upload_from_string(json.dumps(existing), content_type="application/json")
+    except Exception:
+        logger.exception("Failed to update metadata for job %s", job_id)

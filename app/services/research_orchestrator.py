@@ -185,6 +185,40 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
             logger.info("Results page: %s", url)
 
 
+def _build_consolidated_text(result, query: str, depth: str) -> str:
+    """Combine all research outputs into a single text document for KB upload."""
+    parts = [f"Research Briefing: {query}", f"Depth: {depth.upper()}", ""]
+
+    if depth.upper() == "DEEP":
+        if result.master_synthesis:
+            parts.append("=== EXECUTIVE SUMMARY ===")
+            parts.append(result.master_synthesis)
+            parts.append("")
+
+        if result.studies:
+            for i, study in enumerate(result.studies, 1):
+                if study.synthesis:
+                    parts.append(f"=== STUDY {i}: {study.title} ===")
+                    parts.append(study.synthesis)
+                    parts.append("")
+
+        for cluster in getattr(result, "qa_clusters", []):
+            if cluster.findings:
+                parts.append(f"=== Q&A: {cluster.theme} ===")
+                parts.append(cluster.findings)
+                parts.append("")
+
+        if result.qa_summary:
+            parts.append("=== ANTICIPATED Q&A SUMMARY ===")
+            parts.append(result.qa_summary)
+            parts.append("")
+    else:
+        if result.final_synthesis:
+            parts.append(result.final_synthesis)
+
+    return "\n".join(parts)
+
+
 def run_research_for_ui(
     job_id: str,
     user_query: str,
@@ -193,7 +227,7 @@ def run_research_for_ui(
 ) -> None:
     """Launch research in a daemon thread for the web UI.
 
-    Updates job_tracker at each phase. Does NOT upload to ElevenLabs KB.
+    Updates job_tracker at each phase. Uploads a consolidated KB doc to ElevenLabs.
     """
 
     def _run():
@@ -216,6 +250,23 @@ def run_research_for_ui(
                 execute_research(query=user_query, context="", depth=depth)
             )
 
+            # Upload consolidated KB doc to ElevenLabs
+            elevenlabs_doc_id = ""
+            if settings.elevenlabs_api_key:
+                update_job(job_id, phase="Uploading to knowledge base")
+                try:
+                    consolidated = _build_consolidated_text(result, user_query, depth.value)
+                    if consolidated.strip():
+                        doc_name = f"Research: {user_query[:80]} ({job_id})"
+                        elevenlabs_doc_id = _upload_with_retry(
+                            text=consolidated,
+                            name=doc_name,
+                            api_key=settings.elevenlabs_api_key,
+                        )
+                        logger.info("Uploaded consolidated KB doc: %s", elevenlabs_doc_id)
+                except Exception:
+                    logger.exception("Failed to upload consolidated KB doc for job %s", job_id)
+
             # Upload results to GCS
             update_job(job_id, phase="Uploading results")
             result_url = ""
@@ -226,6 +277,7 @@ def run_research_for_ui(
                     depth.value,
                     job_id,
                     settings.gcs_results_bucket,
+                    elevenlabs_doc_id=elevenlabs_doc_id,
                 )
 
             update_job(
@@ -233,9 +285,10 @@ def run_research_for_ui(
                 status=JobStatus.COMPLETED,
                 phase="Complete",
                 result_url=result_url,
+                elevenlabs_doc_id=elevenlabs_doc_id,
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
-            logger.info("UI research complete: job=%s url=%s", job_id, result_url)
+            logger.info("UI research complete: job=%s url=%s doc_id=%s", job_id, result_url, elevenlabs_doc_id)
 
         except Exception as e:
             logger.exception("UI research failed: job=%s", job_id)

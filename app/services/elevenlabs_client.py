@@ -91,6 +91,58 @@ def attach_document_to_agent(agent_id: str, doc_id: str, doc_name: str, api_key:
     logger.info("Attached document %s to agent %s", doc_id, agent_id)
 
 
+def list_agent_knowledge_base(agent_id: str, api_key: str) -> list[dict]:
+    """Return the knowledge_base array from an agent's config."""
+    url = f"{BASE_URL}/convai/agents/{agent_id}"
+    resp = requests.get(url, headers=_headers(api_key), timeout=30)
+    resp.raise_for_status()
+    agent_config = resp.json()
+    kb = (
+        agent_config
+        .get("conversation_config", {})
+        .get("agent", {})
+        .get("prompt", {})
+        .get("knowledge_base", [])
+    )
+    return kb
+
+
+def detach_document_from_agent(agent_id: str, doc_id: str, api_key: str) -> None:
+    """Remove a KB document from an agent (GET current list, filter, PATCH back)."""
+    headers = _headers(api_key)
+    url = f"{BASE_URL}/convai/agents/{agent_id}"
+
+    resp = requests.get(url, headers=headers, timeout=30)
+    resp.raise_for_status()
+    agent_config = resp.json()
+
+    existing_kb = (
+        agent_config
+        .get("conversation_config", {})
+        .get("agent", {})
+        .get("prompt", {})
+        .get("knowledge_base", [])
+    )
+
+    filtered = [d for d in existing_kb if d.get("id", d.get("document_id", "")) != doc_id]
+    if len(filtered) == len(existing_kb):
+        logger.info("Document %s not found on agent %s, nothing to detach", doc_id, agent_id)
+        return
+
+    patch_payload = {
+        "conversation_config": {
+            "agent": {
+                "prompt": {
+                    "knowledge_base": filtered,
+                }
+            }
+        }
+    }
+    resp = requests.patch(url, headers=headers, json=patch_payload, timeout=30)
+    resp.raise_for_status()
+    logger.info("Detached document %s from agent %s", doc_id, agent_id)
+
+
 def attach_documents_to_agent(agent_id: str, doc_map: dict[str, str], api_key: str) -> None:
     """Attach multiple KB documents to an agent in a single GET + PATCH.
 

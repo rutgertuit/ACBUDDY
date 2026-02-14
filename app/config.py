@@ -26,7 +26,10 @@ class Settings:
     environment: str = ""
     elevenlabs_api_key: str = ""
     elevenlabs_webhook_secret: str = ""
-    elevenlabs_agent_id: str = ""
+    elevenlabs_agent_id_maya: str = ""
+    elevenlabs_agent_id_barnaby: str = ""
+    elevenlabs_agent_id_consultant: str = ""
+    elevenlabs_agent_id: str = ""  # backward-compat: set to maya's ID in __post_init__
     google_cloud_project: str = ""
     google_api_key: str = ""
     deep_max_studies: int = 6
@@ -46,14 +49,24 @@ class Settings:
         if self.environment == "local":
             self.elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY", "")
             self.elevenlabs_webhook_secret = os.getenv("ELEVENLABS_WEBHOOK_SECRET", "")
-            self.elevenlabs_agent_id = os.getenv("ELEVENLABS_AGENT_ID", "")
+            self.elevenlabs_agent_id_maya = os.getenv("ELEVENLABS_AGENT_ID_MAYA", "")
+            self.elevenlabs_agent_id_barnaby = os.getenv("ELEVENLABS_AGENT_ID_BARNABY", "")
+            self.elevenlabs_agent_id_consultant = os.getenv("ELEVENLABS_AGENT_ID_CONSULTANT", "")
+            # Backward compat: fall back to old single env var, then maya
+            self.elevenlabs_agent_id = (
+                os.getenv("ELEVENLABS_AGENT_ID", "")
+                or self.elevenlabs_agent_id_maya
+            )
         else:
             project = self.google_cloud_project
             if not project:
                 raise ValueError("GOOGLE_CLOUD_PROJECT must be set in production")
             try:
                 self.elevenlabs_api_key = _get_secret(project, "elevenlabs-api-key")
-                self.elevenlabs_agent_id = _get_secret(project, "elevenlabs-agent-id")
+                self.elevenlabs_agent_id_maya = _get_secret(project, "elevenlabs-agent-id-maya")
+                self.elevenlabs_agent_id_barnaby = _get_secret(project, "elevenlabs-agent-id-barnaby")
+                self.elevenlabs_agent_id_consultant = _get_secret(project, "elevenlabs-agent-id-consultant")
+                self.elevenlabs_agent_id = self.elevenlabs_agent_id_maya
             except Exception:
                 logger.exception("Failed to load secrets from Secret Manager")
                 raise

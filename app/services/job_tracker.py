@@ -24,6 +24,7 @@ class JobInfo:
     phase: str = ""
     result_url: str = ""
     error: str = ""
+    elevenlabs_doc_id: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: str = ""
 
@@ -56,3 +57,12 @@ def update_job(job_id: str, **kwargs) -> None:
         for key, value in kwargs.items():
             if hasattr(job, key):
                 setattr(job, key, value)
+
+
+def count_active_jobs() -> int:
+    """Return the number of jobs currently in PENDING or RUNNING status."""
+    with _lock:
+        return sum(
+            1 for j in _jobs.values()
+            if j.status in (JobStatus.PENDING, JobStatus.RUNNING)
+        )
