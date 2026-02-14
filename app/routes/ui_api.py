@@ -83,7 +83,15 @@ Be lenient - only flag truly vague or ambiguous queries. Single-word topics like
         import json
         from app.agents.json_utils import parse_json_response
         result = parse_json_response(resp.text)
-        return jsonify(result)
+        if result and isinstance(result, dict):
+            return jsonify({
+                "clear": bool(result.get("clear", True)),
+                "feedback": str(result.get("feedback", "")),
+                "suggested_query": str(result.get("suggested_query", "")),
+            })
+        # Fallback: try to find JSON in the raw text
+        logger.warning("Validation parse failed, raw: %s", resp.text[:300])
+        return jsonify({"clear": True, "feedback": "", "suggested_query": ""})
     except Exception as e:
         logger.exception("Validation failed, allowing query through")
         return jsonify({"clear": True, "feedback": "", "suggested_query": ""})
