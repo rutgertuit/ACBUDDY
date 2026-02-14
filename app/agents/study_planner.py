@@ -1,8 +1,18 @@
 from google.adk.agents import LlmAgent
 
 STUDY_PLANNER_INSTRUCTION = """You are a research study planner. Given a user's research query,
-decompose it into 2-6 distinct research studies. Each study explores a different angle,
-perspective, or dimension of the topic.
+decompose it into as many distinct research studies as needed to fully cover the topic.
+Each study explores a different angle, perspective, or dimension.
+
+GUIDELINES FOR NUMBER OF STUDIES:
+- Simple factual queries: 2-3 studies
+- Moderate business/market questions: 4-6 studies
+- Complex multi-faceted topics (industry analysis, policy, competitive landscape): 6-10 studies
+- Broad strategic topics with multiple stakeholders, geographies, or dimensions: 8-12 studies
+
+The goal is COMPREHENSIVE COVERAGE. Plan enough studies so that every important dimension
+of the query is explored. Do NOT artificially limit the number — it's better to have one
+extra study than to miss an important angle.
 
 Consider the user's specific requests for angles, comparisons, or perspectives. If the user
 mentions specific markets, stakeholders, or comparison axes, ensure each gets its own study.

@@ -27,7 +27,7 @@ MAX_CONCURRENT_QA = 3
 async def execute_deep_research(
     query: str,
     context: str = "",
-    max_studies: int = 6,
+    max_studies: int = 0,
     max_rounds_per_study: int = 3,
     max_qa_rounds: int = 2,
     on_progress=None,
@@ -87,7 +87,8 @@ async def execute_deep_research(
         logger.warning("Failed to parse study plan, using single study fallback")
         studies = [{"title": query, "angle": "General research", "questions": [query]}]
 
-    studies = studies[:max_studies]
+    if max_studies > 0:
+        studies = studies[:max_studies]
     result.study_plan = studies
     logger.info("DEEP Phase 1 complete: %d studies planned", len(studies))
     _progress(
@@ -288,84 +289,78 @@ Be comprehensive, cite sources, highlight cross-study patterns."""
                 logger.info("No actionable gap questions, skipping refinement")
                 break
 
-            gap_questions = gap_questions[:4]  # Cap at 4 gap questions
+            gap_questions = gap_questions[:6]
             logger.info(
-                "Synthesis scored %.1f — refining with %d gap questions: %s",
+                "Synthesis scored %.1f — running %d additional studies for gaps: %s",
                 result.synthesis_score,
                 len(gap_questions),
                 [q[:60] for q in gap_questions],
             )
 
-            # Research the gaps using parallel researchers
-            gap_sem = asyncio.Semaphore(MAX_CONCURRENT_STUDIES)
+            # Run full iterative studies for gaps (not just lightweight researchers)
+            gap_study_offset = len(result.studies)
 
-            async def _research_gap(idx, question):
-                async with gap_sem:
+            async def _gap_study_with_sem(idx, question):
+                async with sem:
+                    gap_study = {
+                        "title": f"Gap Study: {question[:80]}",
+                        "angle": f"Addressing gap identified in synthesis evaluation",
+                        "questions": [question],
+                    }
+                    _progress(f"Gap study: {question[:50]}", step=f"gap_study_{idx}",
+                              study_idx=gap_study_offset + idx, study_status="running")
                     try:
-                        gap_svc = InMemorySessionService()
-                        researcher = build_researcher(
-                            idx, model=MODEL, prefix=f"gap_r{refine_round}"
+                        sr = await run_iterative_study(
+                            study_index=gap_study_offset + idx,
+                            study=gap_study,
+                            session_service=InMemorySessionService(),
+                            model=MODEL,
+                            max_rounds=2,
                         )
-                        runner = Runner(
-                            agent=researcher,
-                            app_name=APP_NAME,
-                            session_service=gap_svc,
-                        )
-                        sess = gap_svc.create_session(
-                            app_name=APP_NAME, user_id="system"
-                        )
-                        msg = types.Content(
-                            role="user",
-                            parts=[types.Part(text=question)],
-                        )
-                        result_text = ""
-                        async for event in runner.run_async(
-                            user_id="system",
-                            session_id=sess.id,
-                            new_message=msg,
-                        ):
-                            if (
-                                event.is_final_response()
-                                and event.content
-                                and event.content.parts
-                            ):
-                                result_text = event.content.parts[0].text
-
-                        if not result_text:
-                            sess = gap_svc.get_session(
-                                app_name=APP_NAME,
-                                user_id="system",
-                                session_id=sess.id,
-                            )
-                            if sess:
-                                key = f"gap_r{refine_round}_researcher_{idx}"
-                                result_text = sess.state.get(key, "")
-
-                        return result_text
+                        _progress(f"Completed gap: {question[:50]}", step=f"gap_study_{idx}",
+                                  study_idx=gap_study_offset + idx, study_status="done")
+                        return sr
                     except Exception:
-                        logger.exception("Gap research %d failed: %s", idx, question[:60])
-                        return ""
+                        logger.exception("Gap study %d failed: %s", idx, question[:60])
+                        _progress(f"Failed gap: {question[:50]}", step=f"gap_study_{idx}",
+                                  study_idx=gap_study_offset + idx, study_status="failed")
+                        return StudyResult(title=gap_study["title"], angle=gap_study["angle"])
 
-            gap_tasks = [_research_gap(i, q) for i, q in enumerate(gap_questions)]
-            gap_findings = await asyncio.gather(*gap_tasks)
-            gap_findings = [f for f in gap_findings if f]
+            gap_tasks = [_gap_study_with_sem(i, q) for i, q in enumerate(gap_questions)]
+            gap_study_results = await asyncio.gather(*gap_tasks)
+            gap_study_results = [s for s in gap_study_results if s.synthesis]
 
-            if not gap_findings:
-                logger.warning("All gap research failed, keeping original synthesis")
+            if not gap_study_results:
+                logger.warning("All gap studies failed, keeping original synthesis")
                 break
 
-            # Regenerate master synthesis with original studies + gap findings
-            _progress(f"Refining synthesis (round {refine_round + 1})", step="refinement")
-            logger.info(
-                "Refining synthesis with %d gap findings (%d chars total)",
-                len(gap_findings),
-                sum(len(f) for f in gap_findings),
+            # Add gap studies to result and update master state
+            result.studies.extend(gap_study_results)
+            for i, gs in enumerate(gap_study_results):
+                gap_state_idx = gap_study_offset + i
+                master_state[f"study_{gap_state_idx}_synthesis"] = gs.synthesis
+
+            # Update study_refs for refinement
+            study_refs = "\n".join(
+                f"- Study {i+1} '{s.title}': {{study_{i}_synthesis}}"
+                for i, s in enumerate(result.studies) if s.synthesis
             )
 
-            gap_refs = "\n".join(
-                f"- Gap finding {i+1}: {{gap_finding_{i}}}"
-                for i in range(len(gap_findings))
+            gap_findings = [gs.synthesis for gs in gap_study_results]
+            successful_studies = [s for s in result.studies if s.synthesis]
+            logger.info(
+                "Gap round %d: %d new studies completed (%d total studies now)",
+                refine_round + 1, len(gap_study_results), len(successful_studies),
             )
+
+            # Regenerate master synthesis with all studies (original + gap)
+            _progress(f"Refining synthesis (round {refine_round + 1})", step="refinement")
+            logger.info(
+                "Refining synthesis with %d total studies (%d new gap studies)",
+                len([s for s in result.studies if s.synthesis]),
+                len(gap_findings),
+            )
+
             weak_claims_note = ""
             weak = evaluation.get("weak_claims", [])
             if weak:
@@ -380,35 +375,29 @@ Be comprehensive, cite sources, highlight cross-study patterns."""
             if missing:
                 missing_note = (
                     "\n\nThe following perspectives were missing and should be addressed "
-                    "if the gap research provides relevant information:\n"
+                    "if the new gap studies provide relevant information:\n"
                     + "\n".join(f"- {m}" for m in missing[:5])
                 )
 
             refine_instruction = f"""You are an executive research synthesizer producing a REFINED
-second draft of a research briefing. You have:
+draft of a research briefing. You now have {len([s for s in result.studies if s.synthesis])} studies total
+(including new gap studies that address previously identified weaknesses).
 
-1. The original study syntheses (same as before)
-2. NEW gap research findings that address identified weaknesses
-3. Feedback on weak claims and missing perspectives
-
-Original study syntheses:
+All study syntheses:
 {study_refs}
-
-New gap research findings:
-{gap_refs}
 {weak_claims_note}
 {missing_note}
 
 Produce an improved executive briefing that:
-- Incorporates the new gap findings to fill coverage holes
+- Incorporates findings from ALL studies including the new gap studies
 - Strengthens or removes claims that lacked evidence
 - Includes any newly discovered perspectives
 - Maintains all well-supported content from the original synthesis
 
 SOURCE QUALITY RULES (apply rigorously in this refined draft):
-- Prioritize claims corroborated across multiple studies or the new gap research.
+- Prioritize claims corroborated across multiple studies.
 - Weight authoritative sources higher: government, academic, major publications > general web.
-- Remove or downgrade claims that remain single-sourced after gap research.
+- Remove or downgrade claims that remain single-sourced.
 - Flag any remaining potential bias from vendor/advocacy sources.
 - Tag each key finding with confidence level:
   [HIGH CONFIDENCE] — corroborated across studies or 3+ authoritative sources
@@ -420,13 +409,13 @@ Format as:
 # Executive Research Briefing: {query}
 
 ## Executive Summary
-(3-5 paragraph high-level overview synthesizing ALL evidence including gap fills)
+(3-5 paragraph high-level overview synthesizing ALL studies)
 
 ## Study Summaries
 (Brief summary of each study's key findings)
 
 ## Cross-Study Analysis
-(Patterns, contradictions, and connections — enhanced with gap findings.
+(Patterns, contradictions, and connections across all studies.
 Note confidence levels for cross-study vs. single-study findings.)
 
 ## Key Findings & Recommendations
@@ -457,9 +446,7 @@ Be comprehensive. Mark any remaining areas of uncertainty explicitly."""
                 session_service=session_service,
             )
 
-            refine_state = dict(master_state)  # original study syntheses
-            for i, gf in enumerate(gap_findings):
-                refine_state[f"gap_finding_{i}"] = gf
+            refine_state = dict(master_state)
 
             refine_session = session_service.create_session(
                 app_name=APP_NAME, user_id="system", state=refine_state
