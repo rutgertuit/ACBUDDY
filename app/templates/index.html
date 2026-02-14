@@ -852,7 +852,7 @@ const App = (function() {
     document.getElementById('call-overlay').classList.add('active');
 
     try {
-      const { Conversation } = await import('https://cdn.jsdelivr.net/npm/@11labs/client@0.3.2/+esm');
+      const { Conversation } = await import('https://cdn.jsdelivr.net/npm/@elevenlabs/client@0.14.0/+esm');
 
       activeConversation = await Conversation.startSession({
         agentId: agentId,

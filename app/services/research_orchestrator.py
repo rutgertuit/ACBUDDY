@@ -4,6 +4,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
+from app.agents.agent_profiles import AGENTS, get_agent_id
 from app.config import Settings
 from app.models.depth import ResearchDepth
 from app.services import elevenlabs_client, gcs_client
@@ -266,6 +267,34 @@ def run_research_for_ui(
                         logger.info("Uploaded consolidated KB doc: %s", elevenlabs_doc_id)
                 except Exception:
                     logger.exception("Failed to upload consolidated KB doc for job %s", job_id)
+
+            # Auto-attach to all agents + trigger RAG indexing
+            if elevenlabs_doc_id and settings.elevenlabs_api_key:
+                update_job(job_id, phase="Assigning research to agents")
+                doc_name = f"Research: {user_query[:80]} ({job_id})"
+                for slug in AGENTS:
+                    agent_id = get_agent_id(slug, settings)
+                    if not agent_id:
+                        continue
+                    try:
+                        elevenlabs_client.attach_document_to_agent(
+                            agent_id=agent_id,
+                            doc_id=elevenlabs_doc_id,
+                            doc_name=doc_name,
+                            api_key=settings.elevenlabs_api_key,
+                        )
+                        logger.info("Attached doc %s to agent %s (%s)", elevenlabs_doc_id, slug, agent_id)
+                    except Exception:
+                        logger.exception("Failed to attach doc to agent %s", slug)
+
+                # Trigger RAG indexing
+                try:
+                    elevenlabs_client.trigger_rag_index(
+                        doc_id=elevenlabs_doc_id,
+                        api_key=settings.elevenlabs_api_key,
+                    )
+                except Exception:
+                    logger.exception("Failed to trigger RAG index for doc %s", elevenlabs_doc_id)
 
             # Upload results to GCS
             update_job(job_id, phase="Uploading results")

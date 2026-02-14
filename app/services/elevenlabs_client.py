@@ -188,3 +188,16 @@ def attach_documents_to_agent(agent_id: str, doc_map: dict[str, str], api_key: s
     resp = requests.patch(patch_url, headers=headers, json=patch_payload, timeout=30)
     resp.raise_for_status()
     logger.info("Attached %d new documents to agent %s (total KB: %d)", len(new_docs), agent_id, len(existing_kb))
+
+
+def trigger_rag_index(doc_id: str, api_key: str, model: str = "multilingual_e5_large_instruct") -> dict:
+    """Trigger RAG indexing for a KB document. Returns index status.
+
+    If already indexed, returns current status without re-indexing.
+    """
+    url = f"{BASE_URL}/convai/knowledge-base/{doc_id}/rag-index"
+    resp = requests.post(url, headers=_headers(api_key), json={"model": model}, timeout=30)
+    resp.raise_for_status()
+    result = resp.json()
+    logger.info("RAG index for doc %s: status=%s", doc_id, result.get("status", "unknown"))
+    return result
