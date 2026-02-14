@@ -139,6 +139,7 @@ def job_status(job_id: str):
         "study_plan": job.study_plan,
         "study_progress": job.study_progress,
         "current_step": job.current_step,
+        "phase_timings": job.phase_timings,
     })
 
 
@@ -165,6 +166,49 @@ def stats():
         _set_cache("completed_count", completed)
 
     return jsonify({"researching": researching, "completed": completed})
+
+
+@ui_api_bp.route("/api/timing-estimates")
+def timing_estimates():
+    """Return average phase durations from past DEEP runs (cached 5 min)."""
+    cached = _cached("timing_estimates")
+    if cached is not None:
+        return jsonify(cached)
+
+    settings = current_app.config["SETTINGS"]
+    results = gcs_client.list_results_metadata(settings.gcs_results_bucket, limit=20)
+
+    # Collect timings from DEEP runs that have phase_timings
+    phase_totals: dict[str, list[float]] = {}
+    total_durations: list[float] = []
+    for meta in results:
+        if meta.get("depth") != "DEEP":
+            continue
+        timings = meta.get("phase_timings", {})
+        if not timings:
+            continue
+        run_total = 0.0
+        for phase, data in timings.items():
+            dur = data.get("duration", 0)
+            if dur > 0:
+                phase_totals.setdefault(phase, []).append(dur)
+                run_total += dur
+        if run_total > 0:
+            total_durations.append(run_total)
+
+    # Compute averages
+    averages = {}
+    for phase, durations in phase_totals.items():
+        averages[phase] = round(sum(durations) / len(durations))
+    total_avg = round(sum(total_durations) / len(total_durations)) if total_durations else 0
+
+    data = {
+        "phase_averages": averages,
+        "total_average": total_avg,
+        "sample_count": len(total_durations),
+    }
+    _set_cache("timing_estimates", data)
+    return jsonify(data)
 
 
 @ui_api_bp.route("/api/agents")

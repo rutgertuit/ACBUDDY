@@ -606,8 +606,25 @@ const App = (function() {
   });
 
   /* ── Polling ── */
+  // Historical timing data for smart estimates
+  let historicalTimings = null;  // {phase_averages: {planning: 30, studies: 1200, ...}, total_average: 2400}
+  const PHASE_ORDER = ['planning', 'studies', 'synthesis', 'evaluation', 'refinement', 'strategic_analysis', 'qa', 'upload'];
+
+  async function fetchTimingEstimates() {
+    try {
+      const res = await fetch('/api/timing-estimates');
+      if (res.ok) {
+        historicalTimings = await res.json();
+        if (historicalTimings.total_average > 0) {
+          estimatedSeconds = historicalTimings.total_average;
+        }
+      }
+    } catch(e) { /* use default */ }
+  }
+
   function startPolling() {
     if (!startTime) startTime = Date.now();
+    if (selectedDepth === 'DEEP') fetchTimingEstimates();
     updateTimers();
     elapsedTimer = setInterval(updateTimers, 1000);
     poll();
@@ -626,11 +643,46 @@ const App = (function() {
     return m + ':' + String(s).padStart(2, '0');
   }
 
+  let currentPhaseTimings = {};  // live timings from status API
+
+  function computeSmartEstimate() {
+    // If no historical data, fall back to static estimate
+    if (!historicalTimings || !historicalTimings.phase_averages || historicalTimings.sample_count === 0) {
+      const elapsedSecs = (Date.now() - startTime) / 1000;
+      return Math.max(0, estimatedSeconds - elapsedSecs);
+    }
+    const avgs = historicalTimings.phase_averages;
+    // Sum up expected remaining time from phases not yet completed
+    let remaining = 0;
+    let foundCurrent = false;
+    for (const phase of PHASE_ORDER) {
+      const avg = avgs[phase] || 0;
+      const live = currentPhaseTimings[phase];
+      if (live && live.duration) {
+        // Phase completed — already elapsed, skip
+        continue;
+      } else if (live && live.start && !live.end) {
+        // Currently in this phase — remaining = avg - time_spent_so_far
+        foundCurrent = true;
+        const spent = Date.now() / 1000 - live.start;
+        remaining += Math.max(0, avg - spent);
+      } else if (foundCurrent || (!live && !foundCurrent)) {
+        // Haven't reached this phase yet — if we're past it in PHASE_ORDER and have a current,
+        // add full average. If we haven't found current yet, this phase may have been skipped.
+        if (foundCurrent) {
+          remaining += avg;
+        }
+      }
+    }
+    return remaining;
+  }
+
   function updateTimers() {
     if (!startTime) return;
     const elapsedSecs = (Date.now() - startTime) / 1000;
-    const remaining = Math.max(0, estimatedSeconds - elapsedSecs);
-    const pct = Math.min(99, (elapsedSecs / estimatedSeconds) * 100);
+    const remaining = computeSmartEstimate();
+    const totalEst = elapsedSecs + remaining;
+    const pct = totalEst > 0 ? Math.min(99, (elapsedSecs / totalEst) * 100) : 0;
 
     document.getElementById('elapsed').textContent = fmtTime(elapsedSecs);
     document.getElementById('countdown').textContent = remaining > 0 ? fmtTime(remaining) : 'Any moment...';
@@ -726,6 +778,9 @@ const App = (function() {
       // Update banner phase
       const bp = document.getElementById('banner-phase');
       if (bp) bp.textContent = phase;
+
+      // Capture live phase timings for smart estimates
+      if (data.phase_timings) currentPhaseTimings = data.phase_timings;
 
       // Render study tracker and pipeline steps for DEEP
       if (data.study_progress && data.study_progress.length) {

@@ -8,7 +8,9 @@ from app.agents.agent_profiles import AGENTS, get_agent_id
 from app.config import Settings
 from app.models.depth import ResearchDepth
 from app.services import elevenlabs_client, gcs_client
-from app.services.job_tracker import JobStatus, get_job, update_job
+from app.services.job_tracker import (
+    JobStatus, get_job, update_job, record_phase_timing, finalize_timings,
+)
 from app.agents.root_agent import execute_research
 
 logger = logging.getLogger(__name__)
@@ -265,6 +267,10 @@ def run_research_for_ui(
                 updates = {"phase": phase}
                 if "step" in kwargs:
                     updates["current_step"] = kwargs["step"]
+                    # Record phase timing (normalize study_N -> studies)
+                    step = kwargs["step"]
+                    timing_key = "studies" if step.startswith("study_") else step
+                    record_phase_timing(job_id, timing_key)
                 if "study_plan" in kwargs:
                     updates["study_plan"] = kwargs["study_plan"]
                 if "study_progress" in kwargs:
@@ -330,6 +336,10 @@ def run_research_for_ui(
                 except Exception:
                     logger.exception("Failed to trigger RAG index for doc %s", elevenlabs_doc_id)
 
+            # Finalize phase timings
+            record_phase_timing(job_id, "upload")
+            timings = finalize_timings(job_id)
+
             # Upload results to GCS
             update_job(job_id, phase="Uploading results")
             result_url = ""
@@ -341,6 +351,7 @@ def run_research_for_ui(
                     job_id,
                     settings.gcs_results_bucket,
                     elevenlabs_doc_id=elevenlabs_doc_id,
+                    phase_timings=timings,
                 )
 
             update_job(
@@ -351,7 +362,7 @@ def run_research_for_ui(
                 elevenlabs_doc_id=elevenlabs_doc_id,
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
-            logger.info("UI research complete: job=%s url=%s doc_id=%s", job_id, result_url, elevenlabs_doc_id)
+            logger.info("UI research complete: job=%s url=%s doc_id=%s timings=%s", job_id, result_url, elevenlabs_doc_id, timings)
 
         except Exception as e:
             logger.exception("UI research failed: job=%s", job_id)

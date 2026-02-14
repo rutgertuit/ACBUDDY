@@ -2,6 +2,7 @@
 
 import secrets
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -31,6 +32,9 @@ class JobInfo:
     study_plan: list = field(default_factory=list)
     study_progress: list = field(default_factory=list)  # [{title, status, rounds}]
     current_step: str = ""  # e.g. "study_2", "synthesis", "refinement"
+    # Phase timing: {phase_name: {"start": epoch, "end": epoch}}
+    phase_timings: dict = field(default_factory=dict)
+    _last_phase_key: str = ""
 
 
 _jobs: dict[str, JobInfo] = {}
@@ -61,6 +65,44 @@ def update_job(job_id: str, **kwargs) -> None:
         for key, value in kwargs.items():
             if hasattr(job, key):
                 setattr(job, key, value)
+
+
+def record_phase_timing(job_id: str, phase_key: str) -> None:
+    """Record that a new pipeline phase has started.
+
+    Automatically ends the previous phase and starts timing the new one.
+    Phase keys should be normalized (e.g. 'planning', 'studies', 'synthesis').
+    """
+    now = time.time()
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return
+        # End previous phase
+        if job._last_phase_key and job._last_phase_key in job.phase_timings:
+            prev = job.phase_timings[job._last_phase_key]
+            if "end" not in prev:
+                prev["end"] = now
+                prev["duration"] = now - prev["start"]
+        # Start new phase (don't overwrite if same phase restarts, e.g. study_0 then study_1)
+        if phase_key not in job.phase_timings:
+            job.phase_timings[phase_key] = {"start": now}
+        job._last_phase_key = phase_key
+
+
+def finalize_timings(job_id: str) -> dict:
+    """End all open timings and return the complete phase_timings dict."""
+    now = time.time()
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is None:
+            return {}
+        if job._last_phase_key and job._last_phase_key in job.phase_timings:
+            prev = job.phase_timings[job._last_phase_key]
+            if "end" not in prev:
+                prev["end"] = now
+                prev["duration"] = now - prev["start"]
+        return dict(job.phase_timings)
 
 
 def count_active_jobs() -> int:
