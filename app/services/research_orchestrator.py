@@ -284,7 +284,7 @@ def run_research_for_ui(
                     updates["current_step"] = kwargs["step"]
                     # Record phase timing (normalize study_N -> studies)
                     step = kwargs["step"]
-                    timing_key = "studies" if step.startswith("study_") else step
+                    timing_key = "studies" if step.startswith("study_") else ("refinement" if step.startswith("gap_study_") else step)
                     record_phase_timing(job_id, timing_key)
                 if "study_plan" in kwargs:
                     updates["study_plan"] = kwargs["study_plan"]
@@ -498,7 +498,7 @@ def run_amendment_for_ui(
                 if "step" in kwargs:
                     updates["current_step"] = kwargs["step"]
                     step = kwargs["step"]
-                    timing_key = "studies" if step.startswith("study_") else step
+                    timing_key = "studies" if step.startswith("study_") else ("refinement" if step.startswith("gap_study_") else step)
                     record_phase_timing(job_id, timing_key)
                 update_job(job_id, **updates)
 

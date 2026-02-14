@@ -660,13 +660,16 @@ const App = (function() {
   let pipelineRendered = false;
   let lastRenderedStats = {};
 
-  const PHASE_ORDER = ['planning', 'studies', 'synthesis', 'evaluation', 'refinement', 'strategic_analysis', 'qa', 'upload'];
+  const PHASE_ORDER = ['analysis', 'planning', 'studies', 'synthesis', 'claim_validation', 'evaluation', 'refinement', 'verification', 'strategic_analysis', 'qa', 'upload'];
   const PIPELINE_STEPS = [
+    {id:'analysis', label:'Analyzing query', icon:'search'},
     {id:'planning', label:'Planning studies', icon:'psychology'},
     {id:'studies', label:'Researching studies', icon:'science'},
     {id:'synthesis', label:'Master synthesis', icon:'auto_awesome'},
+    {id:'claim_validation', label:'Validating claims', icon:'gavel'},
     {id:'evaluation', label:'Quality evaluation', icon:'fact_check'},
     {id:'refinement', label:'Refining synthesis', icon:'refresh'},
+    {id:'verification', label:'Verifying facts', icon:'verified'},
     {id:'strategic_analysis', label:'Strategic frameworks', icon:'analytics'},
     {id:'qa', label:'Anticipated Q&A', icon:'forum'},
   ];
@@ -1168,6 +1171,7 @@ const App = (function() {
   function normalizePipelineStep(step) {
     if (!step) return step;
     if (step.startsWith('study_')) return 'studies';
+    if (step.startsWith('gap_study_')) return 'refinement';
     return step;
   }
 
