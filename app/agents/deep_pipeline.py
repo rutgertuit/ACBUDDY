@@ -30,6 +30,7 @@ async def execute_deep_research(
     max_studies: int = 6,
     max_rounds_per_study: int = 3,
     max_qa_rounds: int = 2,
+    on_progress=None,
 ) -> ResearchResult:
     """Execute the full DEEP multi-study research pipeline.
 
@@ -37,12 +38,25 @@ async def execute_deep_research(
     Phase 2: Parallel iterative studies
     Phase 3: Per-study synthesis (done within iterative_researcher)
     Phase 4: Master synthesis
+    Phase 4b: Synthesis evaluation & refinement
+    Phase 4c: Strategic analysis
     Phase 5: Anticipatory Q&A research
+
+    Args:
+        on_progress: Optional callback(phase, **kwargs) for reporting progress.
     """
+    def _progress(phase, **kwargs):
+        if on_progress:
+            try:
+                on_progress(phase, **kwargs)
+            except Exception:
+                pass
+
     result = ResearchResult(original_query=query)
     session_service = InMemorySessionService()
 
     # ---- Phase 1: Study Planning ----
+    _progress("planning", step="planning")
     logger.info("DEEP Phase 1: Planning studies for query: %s", query[:100])
 
     planner = build_study_planner(model=MODEL)
@@ -76,6 +90,12 @@ async def execute_deep_research(
     studies = studies[:max_studies]
     result.study_plan = studies
     logger.info("DEEP Phase 1 complete: %d studies planned", len(studies))
+    _progress(
+        f"Planned {len(studies)} studies",
+        step="studies",
+        study_plan=[{"title": s.get("title", ""), "angle": s.get("angle", "")} for s in studies],
+        study_progress=[{"title": s.get("title", ""), "status": "pending", "rounds": 0} for s in studies],
+    )
 
     # ---- Phase 2 & 3: Parallel Iterative Studies ----
     logger.info("DEEP Phase 2: Running %d iterative studies (max concurrent: %d)", len(studies), MAX_CONCURRENT_STUDIES)
@@ -84,17 +104,25 @@ async def execute_deep_research(
 
     async def _study_with_sem(idx, study_dict):
         async with sem:
+            title = study_dict.get("title", f"Study {idx}")
+            _progress(f"Researching: {title}", step=f"study_{idx}",
+                      study_idx=idx, study_status="running")
             try:
-                return await run_iterative_study(
+                sr = await run_iterative_study(
                     study_index=idx,
                     study=study_dict,
-                    session_service=InMemorySessionService(),  # each study gets own session service
+                    session_service=InMemorySessionService(),
                     model=MODEL,
                     max_rounds=max_rounds_per_study,
                 )
+                _progress(f"Completed: {title}", step=f"study_{idx}",
+                          study_idx=idx, study_status="done")
+                return sr
             except Exception:
                 logger.exception("Study %d '%s' failed", idx, study_dict.get("title", ""))
-                return StudyResult(title=study_dict.get("title", f"Study {idx}"), angle=study_dict.get("angle", ""))
+                _progress(f"Failed: {title}", step=f"study_{idx}",
+                          study_idx=idx, study_status="failed")
+                return StudyResult(title=title, angle=study_dict.get("angle", ""))
 
     study_tasks = [_study_with_sem(i, s) for i, s in enumerate(studies)]
     study_results = await asyncio.gather(*study_tasks)
@@ -108,6 +136,7 @@ async def execute_deep_research(
         return result
 
     # ---- Phase 4: Master Synthesis ----
+    _progress(f"Synthesizing {len(successful_studies)} studies", step="synthesis")
     logger.info("DEEP Phase 4: Master synthesis from %d studies", len(successful_studies))
 
     study_refs = "\n".join(
@@ -217,6 +246,7 @@ Be comprehensive, cite sources, highlight cross-study patterns."""
     if result.master_synthesis:
         max_refinement_rounds = 2
         for refine_round in range(max_refinement_rounds):
+            _progress(f"Evaluating quality (round {refine_round + 1})", step="evaluation")
             logger.info("DEEP Phase 4b: Evaluating synthesis (round %d)", refine_round + 1)
 
             evaluation = await evaluate_synthesis(
@@ -313,6 +343,7 @@ Be comprehensive, cite sources, highlight cross-study patterns."""
                 break
 
             # Regenerate master synthesis with original studies + gap findings
+            _progress(f"Refining synthesis (round {refine_round + 1})", step="refinement")
             logger.info(
                 "Refining synthesis with %d gap findings (%d chars total)",
                 len(gap_findings),
@@ -462,6 +493,7 @@ Be comprehensive. Mark any remaining areas of uncertainty explicitly."""
 
     # ---- Phase 4c: Strategic Analysis ----
     if result.master_synthesis:
+        _progress("Applying strategic frameworks", step="strategic_analysis")
         logger.info("DEEP Phase 4c: Strategic analysis")
         try:
             result.strategic_analysis = await run_strategic_analysis(
@@ -481,6 +513,7 @@ Be comprehensive. Mark any remaining areas of uncertainty explicitly."""
         logger.warning("No master synthesis, skipping Q&A phase")
         return result
 
+    _progress("Generating anticipated Q&A", step="qa")
     logger.info("DEEP Phase 5: Anticipatory Q&A research")
 
     qa_anticipator = build_qa_anticipator(model=MODEL)

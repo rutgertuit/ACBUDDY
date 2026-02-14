@@ -136,6 +136,9 @@ def job_status(job_id: str):
         "elevenlabs_doc_id": job.elevenlabs_doc_id,
         "created_at": job.created_at,
         "completed_at": job.completed_at,
+        "study_plan": job.study_plan,
+        "study_progress": job.study_progress,
+        "current_step": job.current_step,
     })
 
 

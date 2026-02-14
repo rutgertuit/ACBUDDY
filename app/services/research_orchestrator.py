@@ -8,7 +8,7 @@ from app.agents.agent_profiles import AGENTS, get_agent_id
 from app.config import Settings
 from app.models.depth import ResearchDepth
 from app.services import elevenlabs_client, gcs_client
-from app.services.job_tracker import JobStatus, update_job
+from app.services.job_tracker import JobStatus, get_job, update_job
 from app.agents.root_agent import execute_research
 
 logger = logging.getLogger(__name__)
@@ -260,10 +260,29 @@ def run_research_for_ui(
                 user_query[:100],
             )
 
+            # Progress callback for DEEP pipeline
+            def _on_progress(phase, **kwargs):
+                updates = {"phase": phase}
+                if "step" in kwargs:
+                    updates["current_step"] = kwargs["step"]
+                if "study_plan" in kwargs:
+                    updates["study_plan"] = kwargs["study_plan"]
+                if "study_progress" in kwargs:
+                    updates["study_progress"] = kwargs["study_progress"]
+                # Update individual study status
+                if "study_idx" in kwargs and "study_status" in kwargs:
+                    job = get_job(job_id)
+                    if job and job.study_progress:
+                        idx = kwargs["study_idx"]
+                        if idx < len(job.study_progress):
+                            job.study_progress[idx]["status"] = kwargs["study_status"]
+                update_job(job_id, **updates)
+
             # Execute ADK research pipeline
             update_job(job_id, phase=f"Running {depth.value.upper()} pipeline")
             result = asyncio.run(
-                execute_research(query=user_query, context="", depth=depth)
+                execute_research(query=user_query, context="", depth=depth,
+                                 on_progress=_on_progress)
             )
 
             # Upload consolidated KB doc to ElevenLabs

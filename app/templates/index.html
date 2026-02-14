@@ -225,51 +225,63 @@ tailwind.config = {
   </div>
 
   <!-- ════════════ PROGRESS VIEW ════════════ -->
-  <div id="view-progress" class="view flex-1">
-    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+  <div id="view-progress" class="view flex-1" style="overflow-y:auto">
+    <header class="flex flex-col items-center mt-4 space-y-1 opacity-80">
       <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
       <p class="text-xs text-primary">Researching...</p>
     </header>
-    <div class="flex-1 flex flex-col items-center justify-center gap-5">
-      <!-- Orbital spinner -->
-      <div class="relative w-28 h-28">
-        <div class="absolute inset-0 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 1.2s linear infinite"></div>
-        <div class="absolute inset-3 border-2 border-slate-200 border-t-primary/50 rounded-full" style="animation:spin 1.8s linear infinite reverse"></div>
-        <div class="absolute inset-6 border-2 border-slate-200 border-t-primary/25 rounded-full" style="animation:spin 2.4s linear infinite"></div>
-        <div class="absolute inset-0 flex items-center justify-center">
-          <span class="material-icons text-primary text-2xl">search</span>
+    <div class="flex flex-col items-center gap-4 px-2 pb-4">
+      <!-- Compact spinner + phase -->
+      <div class="flex items-center gap-3 mt-3">
+        <div class="relative w-10 h-10 flex-shrink-0">
+          <div class="absolute inset-0 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 1.2s linear infinite"></div>
+          <div class="absolute inset-1.5 border-2 border-slate-200 border-t-primary/50 rounded-full" style="animation:spin 1.8s linear infinite reverse"></div>
+          <div class="absolute inset-0 flex items-center justify-center">
+            <span class="material-icons text-primary text-sm">search</span>
+          </div>
         </div>
+        <div id="phase-text" class="text-sm text-slate-600 font-medium">Starting...</div>
       </div>
-
-      <div id="phase-text" class="text-sm text-slate-500 text-center">Starting...</div>
 
       <!-- Countdown + elapsed -->
       <div class="flex items-center gap-6 text-center">
         <div>
-          <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Elapsed</div>
-          <div id="elapsed" class="text-lg font-mono font-medium text-slate-600 tabular-nums">0:00</div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Elapsed</div>
+          <div id="elapsed" class="text-base font-mono font-medium text-slate-600 tabular-nums">0:00</div>
         </div>
-        <div class="w-px h-8 bg-gradient-to-b from-transparent via-slate-200 to-transparent"></div>
+        <div class="w-px h-6 bg-gradient-to-b from-transparent via-slate-200 to-transparent"></div>
         <div>
-          <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Est. Remaining</div>
-          <div id="countdown" class="text-lg font-mono font-medium text-primary tabular-nums">--:--</div>
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Est. Remaining</div>
+          <div id="countdown" class="text-base font-mono font-medium text-primary tabular-nums">--:--</div>
         </div>
       </div>
 
       <!-- Progress bar -->
-      <div class="w-full px-4">
+      <div class="w-full px-2">
         <div class="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
           <div id="progress-bar" class="h-full bg-gradient-to-r from-primary to-cyan-300 rounded-full transition-all duration-1000" style="width:0%"></div>
         </div>
-        <div class="flex justify-between mt-1">
+        <div class="flex justify-between mt-0.5">
           <span id="progress-start" class="text-[10px] text-slate-400 font-mono">--:--</span>
           <span id="progress-pct" class="text-[10px] text-primary font-semibold">0%</span>
           <span id="progress-eta" class="text-[10px] text-slate-400 font-mono">--:--</span>
         </div>
       </div>
 
+      <!-- Study plan tracker (DEEP only, populated by poll()) -->
+      <div id="study-tracker" class="w-full space-y-1.5 hidden">
+        <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-1">Research Plan</div>
+        <div id="study-list" class="space-y-1"></div>
+      </div>
+
+      <!-- Pipeline steps tracker -->
+      <div id="pipeline-steps" class="w-full hidden">
+        <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-1 mb-1">Pipeline</div>
+        <div id="step-list" class="space-y-1"></div>
+      </div>
+
       <!-- Mid-research status card -->
-      <div id="mid-check" class="glass-panel rounded-xl p-3 w-full shadow-glass border border-white/60 mt-2">
+      <div id="mid-check" class="glass-panel rounded-xl p-2.5 w-full shadow-glass border border-white/60">
         <div class="flex items-center gap-2">
           <span id="mid-check-icon" class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
           <span id="mid-check-text" class="text-[11px] text-slate-500">Pipeline running normally</span>
@@ -554,6 +566,16 @@ const App = (function() {
     document.getElementById('progress-start').textContent = now.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',hour12:false});
     document.getElementById('progress-eta').textContent = eta.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',hour12:false});
 
+    // Reset progress trackers
+    pipelineRendered = false;
+    document.getElementById('study-tracker').classList.add('hidden');
+    document.getElementById('pipeline-steps').classList.add('hidden');
+    document.getElementById('study-list').innerHTML = '';
+    document.getElementById('step-list').innerHTML = '';
+    document.getElementById('phase-text').textContent = 'Starting...';
+    document.getElementById('progress-bar').style.width = '0%';
+    document.getElementById('progress-pct').textContent = '0%';
+
     showView('progress');
     startPolling();
   }
@@ -621,6 +643,48 @@ const App = (function() {
   }
 
   let lastPhase = '';
+  const PIPELINE_STEPS = [
+    {id:'planning', label:'Planning studies', icon:'psychology'},
+    {id:'studies', label:'Researching studies', icon:'science'},
+    {id:'synthesis', label:'Master synthesis', icon:'auto_awesome'},
+    {id:'evaluation', label:'Quality evaluation', icon:'fact_check'},
+    {id:'refinement', label:'Refining synthesis', icon:'refresh'},
+    {id:'strategic_analysis', label:'Strategic frameworks', icon:'analytics'},
+    {id:'qa', label:'Anticipated Q&A', icon:'forum'},
+  ];
+  let pipelineRendered = false;
+
+  function renderStudyTracker(studyProgress) {
+    const tracker = document.getElementById('study-tracker');
+    const list = document.getElementById('study-list');
+    if (!studyProgress || !studyProgress.length) { tracker.classList.add('hidden'); return; }
+    tracker.classList.remove('hidden');
+    list.innerHTML = studyProgress.map((s, i) => {
+      const statusIcon = s.status === 'done' ? '<span class="material-icons text-emerald-500 text-sm">check_circle</span>'
+        : s.status === 'running' ? '<span class="material-icons text-primary text-sm animate-pulse">pending</span>'
+        : s.status === 'failed' ? '<span class="material-icons text-red-400 text-sm">error</span>'
+        : '<span class="material-icons text-slate-300 text-sm">radio_button_unchecked</span>';
+      const textClass = s.status === 'running' ? 'text-slate-700 font-medium' : s.status === 'done' ? 'text-slate-500' : 'text-slate-400';
+      return `<div class="flex items-center gap-2 px-1">${statusIcon}<span class="text-xs ${textClass} truncate">${s.title || 'Study '+(i+1)}</span></div>`;
+    }).join('');
+  }
+
+  function renderPipelineSteps(currentStep) {
+    const container = document.getElementById('pipeline-steps');
+    const list = document.getElementById('step-list');
+    if (!currentStep && !pipelineRendered) return;
+    container.classList.remove('hidden');
+    pipelineRendered = true;
+    const stepIdx = PIPELINE_STEPS.findIndex(s => s.id === currentStep);
+    list.innerHTML = PIPELINE_STEPS.map((s, i) => {
+      let icon, textClass;
+      if (i < stepIdx) { icon = `<span class="material-icons text-emerald-500 text-sm">check_circle</span>`; textClass = 'text-slate-500'; }
+      else if (i === stepIdx) { icon = `<span class="material-icons text-primary text-sm animate-pulse">pending</span>`; textClass = 'text-slate-700 font-medium'; }
+      else { icon = `<span class="material-icons text-slate-300 text-sm">radio_button_unchecked</span>`; textClass = 'text-slate-400'; }
+      return `<div class="flex items-center gap-2 px-1">${icon}<span class="material-icons ${textClass} text-sm">${s.icon}</span><span class="text-xs ${textClass}">${s.label}</span></div>`;
+    }).join('');
+  }
+
   async function poll() {
     if (!currentJobId) return;
     try {
@@ -633,6 +697,14 @@ const App = (function() {
       // Update banner phase
       const bp = document.getElementById('banner-phase');
       if (bp) bp.textContent = phase;
+
+      // Render study tracker and pipeline steps for DEEP
+      if (data.study_progress && data.study_progress.length) {
+        renderStudyTracker(data.study_progress);
+      }
+      if (data.current_step) {
+        renderPipelineSteps(data.current_step);
+      }
 
       // Mid-research status check
       const midIcon = document.getElementById('mid-check-icon');
