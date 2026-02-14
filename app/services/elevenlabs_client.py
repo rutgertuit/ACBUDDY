@@ -72,8 +72,15 @@ def attach_document_to_agent(agent_id: str, doc_id: str, doc_name: str, api_key:
         logger.info("Document %s already attached to agent %s", doc_id, agent_id)
         return
 
+    # Detect the type used by existing entries (ElevenLabs may use "file" for all uploads)
+    doc_type = "file"
+    if existing_kb:
+        first_type = existing_kb[0].get("type", "file")
+        if first_type in ("file", "text", "url", "folder"):
+            doc_type = first_type if first_type == "text" else "file"
+
     # Append new document
-    existing_kb.append({"type": "text", "id": doc_id, "name": doc_name})
+    existing_kb.append({"type": doc_type, "id": doc_id, "name": doc_name})
 
     # PATCH agent with updated knowledge base
     patch_url = f"{BASE_URL}/convai/agents/{agent_id}"
@@ -86,9 +93,34 @@ def attach_document_to_agent(agent_id: str, doc_id: str, doc_name: str, api_key:
             }
         }
     }
+    logger.info(
+        "Patching agent %s KB: adding doc %s (type=%s), total KB entries: %d",
+        agent_id, doc_id, doc_type, len(existing_kb),
+    )
     resp = requests.patch(patch_url, headers=headers, json=patch_payload, timeout=30)
     resp.raise_for_status()
-    logger.info("Attached document %s to agent %s", doc_id, agent_id)
+    # Verify the doc was actually added
+    verify_resp = requests.get(get_url, headers=headers, timeout=30)
+    if verify_resp.ok:
+        verify_kb = (
+            verify_resp.json()
+            .get("conversation_config", {})
+            .get("agent", {})
+            .get("prompt", {})
+            .get("knowledge_base", [])
+        )
+        verify_ids = {d.get("id", d.get("document_id", "")) for d in verify_kb}
+        if doc_id in verify_ids:
+            logger.info("Verified: document %s attached to agent %s (KB size: %d)", doc_id, agent_id, len(verify_kb))
+        else:
+            logger.error(
+                "ATTACH FAILED SILENTLY: doc %s not found in agent %s KB after PATCH. "
+                "KB types: %s",
+                doc_id, agent_id,
+                [d.get("type") for d in verify_kb],
+            )
+    else:
+        logger.warning("Could not verify attachment (GET returned %s)", verify_resp.status_code)
 
 
 def list_agent_knowledge_base(agent_id: str, api_key: str) -> list[dict]:
@@ -104,6 +136,13 @@ def list_agent_knowledge_base(agent_id: str, api_key: str) -> list[dict]:
         .get("prompt", {})
         .get("knowledge_base", [])
     )
+    if kb:
+        logger.info(
+            "Agent %s KB: %d entries, types=%s, sample=%s",
+            agent_id, len(kb),
+            [d.get("type") for d in kb[:3]],
+            {k: v for k, v in kb[0].items() if k != "name"}
+        )
     return kb
 
 
@@ -167,7 +206,15 @@ def attach_documents_to_agent(agent_id: str, doc_map: dict[str, str], api_key: s
     existing_kb = prompt_section.get("knowledge_base", [])
 
     existing_ids = {doc.get("id", doc.get("document_id", "")) for doc in existing_kb}
-    new_docs = [{"type": "text", "id": did, "name": dname} for did, dname in doc_map.items() if did not in existing_ids]
+
+    # Detect the type used by existing entries
+    doc_type = "file"
+    if existing_kb:
+        first_type = existing_kb[0].get("type", "file")
+        if first_type in ("file", "text", "url", "folder"):
+            doc_type = first_type if first_type == "text" else "file"
+
+    new_docs = [{"type": doc_type, "id": did, "name": dname} for did, dname in doc_map.items() if did not in existing_ids]
 
     if not new_docs:
         logger.info("All %d documents already attached to agent %s", len(doc_map), agent_id)

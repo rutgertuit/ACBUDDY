@@ -279,8 +279,10 @@ def attach_kb(slug: str):
             doc_name=doc_name or doc_id,
             api_key=settings.elevenlabs_api_key,
         )
-        # Invalidate cache
-        _cache.pop(f"kb_count_{slug}", None)
+        # Invalidate ALL agent caches so UI reflects the change
+        _cache.pop(f"kb_docs_{slug}", None)
+        for s in AGENTS:
+            _cache.pop(f"kb_docs_{s}", None)
         return jsonify({"ok": True})
     except Exception as e:
         logger.exception("Failed to attach doc %s to agent %s", doc_id, slug)
@@ -325,8 +327,10 @@ def detach_kb(slug: str, doc_id: str):
             doc_id=doc_id,
             api_key=settings.elevenlabs_api_key,
         )
-        # Invalidate cache
-        _cache.pop(f"kb_count_{slug}", None)
+        # Invalidate ALL agent caches so UI reflects the change
+        _cache.pop(f"kb_docs_{slug}", None)
+        for s in AGENTS:
+            _cache.pop(f"kb_docs_{s}", None)
         return jsonify({"ok": True})
     except Exception as e:
         logger.exception("Failed to detach doc %s from agent %s", doc_id, slug)
