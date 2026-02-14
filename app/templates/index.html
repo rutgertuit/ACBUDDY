@@ -81,13 +81,9 @@ tailwind.config = {
   }
   .widget-overlay.active { display: flex; }
 
-  /* Settings KB item */
-  .kb-item {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0.75rem 1rem; border-radius: 0.75rem;
-    background: rgba(255,255,255,0.5); border: 1px solid rgba(0,0,0,0.04);
-    margin-bottom: 0.5rem;
-  }
+  /* Call overlay pulse */
+  @keyframes call-ring { 0%{transform:scale(1);opacity:0.4} 100%{transform:scale(1.3);opacity:0} }
+  #call-pulse-ring:not(.hidden) { animation: call-ring 2s ease-out infinite; }
 </style>
 </head>
 <body class="font-display text-slate-600 flex flex-col items-center overflow-x-hidden">
@@ -344,25 +340,14 @@ tailwind.config = {
     <div id="archive-list" class="mt-4 space-y-2"></div>
   </div>
 
-  <!-- ════════════ SETTINGS VIEW ════════════ -->
-  <div id="view-settings" class="view flex-1">
-    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
-      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
-      <p class="text-xs text-slate-400">Knowledge Base Management</p>
-    </header>
-    <div id="settings-agents" class="mt-6 space-y-6"></div>
-  </div>
 
 </main>
 
 <!-- ════════════ BOTTOM NAV ════════════ -->
 <nav id="bottom-nav" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
-  <div class="glass-panel px-6 py-3 rounded-full flex items-center justify-between w-[340px] shadow-glass relative">
+  <div class="glass-panel px-6 py-3 rounded-full flex items-center justify-between w-[280px] shadow-glass relative">
     <button class="nav-btn p-2 rounded-full hover:bg-slate-100 transition-colors group" data-view="archive">
       <span class="material-icons text-slate-400 group-hover:text-primary transition-colors text-xl">inventory_2</span>
-    </button>
-    <button class="nav-btn p-2 rounded-full hover:bg-slate-100 transition-colors group" data-view="home">
-      <span class="material-icons text-slate-400 group-hover:text-primary transition-colors text-xl">home</span>
     </button>
     <!-- Center raised chat button -->
     <button class="nav-btn relative -top-6 p-4 rounded-full bg-gradient-to-b from-white to-slate-100 shadow-lg border border-slate-100 group hover:-translate-y-1 transition-transform duration-300" data-view="chat">
@@ -376,23 +361,52 @@ tailwind.config = {
         </div>
       </div>
     </button>
-    <button class="nav-btn p-2 rounded-full hover:bg-slate-100 transition-colors group" data-view="settings">
-      <span class="material-icons text-slate-400 group-hover:text-primary transition-colors text-xl">settings</span>
+    <button class="nav-btn p-2 rounded-full hover:bg-slate-100 transition-colors group" data-view="home">
+      <span class="material-icons text-slate-400 group-hover:text-primary transition-colors text-xl">home</span>
     </button>
   </div>
 </nav>
 
-<!-- ════════════ WIDGET OVERLAY ════════════ -->
-<div id="widget-overlay" class="widget-overlay">
-  <button onclick="App.closeWidget()" class="absolute top-6 right-6 z-10 p-2 rounded-full hover:bg-slate-200 transition-colors">
-    <span class="material-icons text-slate-500 text-3xl">close</span>
-  </button>
-  <div id="widget-agent-name" class="text-sm tracking-widest uppercase font-light text-slate-500 mb-4"></div>
-  <div id="widget-container" class="w-full max-w-md h-[70vh] flex items-center justify-center"></div>
-</div>
+<!-- ════════════ CALL OVERLAY ════════════ -->
+<div id="call-overlay" class="widget-overlay">
+  <div class="flex flex-col items-center justify-between h-full max-w-sm w-full py-16 px-6">
+    <!-- Agent info -->
+    <div class="flex flex-col items-center">
+      <div class="w-24 h-24 rounded-full bg-white/80 shadow-neumorphic flex items-center justify-center mb-4 relative">
+        <span id="call-agent-icon" class="material-icons text-4xl text-primary">bolt</span>
+        <!-- Pulsing ring when connected -->
+        <div id="call-pulse-ring" class="absolute inset-0 rounded-full border-2 border-primary/40 hidden" style="animation:spin 3s linear infinite"></div>
+      </div>
+      <div id="call-agent-name" class="text-xl font-semibold text-slate-700"></div>
+      <div id="call-agent-subtitle" class="text-xs text-slate-400 mt-1"></div>
+    </div>
 
-<!-- ElevenLabs widget SDK -->
-<script src="https://unpkg.com/@11labs/convai-widget-embed" type="module"></script>
+    <!-- Status + timer -->
+    <div class="flex flex-col items-center gap-3">
+      <div id="call-status" class="flex items-center gap-2">
+        <div id="call-status-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse"></div>
+        <span id="call-status-text" class="text-sm text-slate-500">Connecting...</span>
+      </div>
+      <div id="call-timer" class="text-2xl font-mono font-light text-slate-400 tabular-nums hidden">0:00</div>
+      <!-- Audio bars visualization -->
+      <div id="call-audio-viz" class="flex items-end justify-center gap-[3px] h-8 hidden">
+        <div class="w-[4px] bg-primary/60 rounded-full" style="height:40%;animation:pulse-bar 0.8s ease-in-out infinite"></div>
+        <div class="w-[4px] bg-primary/60 rounded-full" style="height:70%;animation:pulse-bar 1.0s ease-in-out infinite 0.1s"></div>
+        <div class="w-[4px] bg-primary/60 rounded-full" style="height:100%;animation:pulse-bar 0.7s ease-in-out infinite 0.2s"></div>
+        <div class="w-[4px] bg-primary/60 rounded-full" style="height:60%;animation:pulse-bar 0.9s ease-in-out infinite 0.15s"></div>
+        <div class="w-[4px] bg-primary/60 rounded-full" style="height:80%;animation:pulse-bar 1.1s ease-in-out infinite 0.25s"></div>
+      </div>
+      <!-- Error message -->
+      <div id="call-error" class="text-sm text-red-400 text-center hidden"></div>
+    </div>
+
+    <!-- End call button -->
+    <button id="call-end-btn" onclick="App.endCall()"
+            class="w-16 h-16 rounded-full bg-red-500 flex items-center justify-center shadow-lg hover:bg-red-600 active:scale-95 transition-all">
+      <span class="material-icons text-white text-3xl">call_end</span>
+    </button>
+  </div>
+</div>
 
 <script>
 const App = (function() {
@@ -432,7 +446,6 @@ const App = (function() {
 
     if (name === 'archive') loadArchive();
     if (name === 'chat') loadChatAgents();
-    if (name === 'settings') loadSettings();
     if (name === 'home') { loadStats(); updateBanner(); }
   }
 
@@ -671,7 +684,7 @@ const App = (function() {
 
     if (mode === 'chat') {
       // Chat view: simple card, opens widget directly
-      return `<div class="agent-card agent-${esc(a.color)}" onclick="App.openWidget('${esc(a.agent_id)}','${esc(a.name)}')">
+      return `<div class="agent-card agent-${esc(a.color)}" onclick="App.startCall('${esc(a.agent_id)}','${esc(a.name)}')">
         <div class="flex items-center gap-3 mb-2">
           <div class="w-10 h-10 rounded-full bg-white/80 shadow-inner-chrome flex items-center justify-center flex-shrink-0">
             <span class="material-icons agent-icon text-xl">${esc(a.icon)}</span>
@@ -710,7 +723,7 @@ const App = (function() {
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-primary to-cyan-400 hover:opacity-90 transition-opacity">
           <span class="material-icons text-sm">add_circle</span> Assign Research
         </button>
-        <button onclick="App.openWidget('${esc(a.agent_id)}','${esc(a.name)}')"
+        <button onclick="App.startCall('${esc(a.agent_id)}','${esc(a.name)}')"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors">
           <span class="material-icons text-sm">chat</span> Chat
         </button>
@@ -769,7 +782,7 @@ const App = (function() {
         actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-emerald-600 font-semibold">
           <span class="material-icons text-sm">check_circle</span> Research assigned to ${esc(agentName)}!
         </div>
-        <button onclick="App.openWidget('${esc(agentId)}','${esc(agentName)}')"
+        <button onclick="App.startCall('${esc(agentId)}','${esc(agentName)}')"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-primary to-cyan-400 hover:opacity-90 transition-opacity mt-2">
           <span class="material-icons text-sm">chat</span> Chat with ${esc(agentName)}
         </button>`;
@@ -809,18 +822,95 @@ const App = (function() {
     }
   }
 
-  /* ── Widget ── */
-  function openWidget(agentId, agentName) {
+  /* ── Voice Call (ElevenLabs SDK) ── */
+  let activeConversation = null;
+  let callTimerInterval = null;
+  let callStartTime = null;
+
+  async function startCall(agentId, agentName) {
     if (!agentId) { alert('Agent not configured'); return; }
-    document.getElementById('widget-agent-name').textContent = agentName || 'Agent';
-    const wc = document.getElementById('widget-container');
-    wc.innerHTML = `<elevenlabs-convai agent-id="${esc(agentId)}"></elevenlabs-convai>`;
-    document.getElementById('widget-overlay').classList.add('active');
+
+    // Find agent metadata for icon/color/subtitle
+    const agent = agentsData.find(a => a.agent_id === agentId) || {};
+
+    // Show call overlay in connecting state
+    document.getElementById('call-agent-icon').textContent = agent.icon || 'mic';
+    document.getElementById('call-agent-icon').style.color = `var(--ac)`;
+    document.getElementById('call-agent-icon').closest('.agent-cyan, .agent-amber, .agent-violet, [class]'); // fallback
+    const iconEl = document.getElementById('call-agent-icon');
+    const colorMap = { cyan: '#0dccf2', amber: '#f59e0b', violet: '#8b5cf6' };
+    iconEl.style.color = colorMap[agent.color] || '#0dccf2';
+
+    document.getElementById('call-agent-name').textContent = agentName || 'Agent';
+    document.getElementById('call-agent-subtitle').textContent = agent.subtitle || '';
+    document.getElementById('call-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse';
+    document.getElementById('call-status-text').textContent = 'Connecting...';
+    document.getElementById('call-timer').classList.add('hidden');
+    document.getElementById('call-audio-viz').classList.add('hidden');
+    document.getElementById('call-pulse-ring').classList.add('hidden');
+    document.getElementById('call-error').classList.add('hidden');
+    document.getElementById('call-overlay').classList.add('active');
+
+    try {
+      const { Conversation } = await import('https://cdn.jsdelivr.net/npm/@11labs/client@0.3.2/+esm');
+
+      activeConversation = await Conversation.startSession({
+        agentId: agentId,
+        onConnect: () => {
+          document.getElementById('call-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
+          document.getElementById('call-status-text').textContent = 'Connected';
+          document.getElementById('call-timer').classList.remove('hidden');
+          document.getElementById('call-audio-viz').classList.remove('hidden');
+          document.getElementById('call-pulse-ring').classList.remove('hidden');
+          callStartTime = Date.now();
+          callTimerInterval = setInterval(updateCallTimer, 1000);
+        },
+        onDisconnect: () => {
+          document.getElementById('call-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-slate-300';
+          document.getElementById('call-status-text').textContent = 'Call ended';
+          document.getElementById('call-audio-viz').classList.add('hidden');
+          document.getElementById('call-pulse-ring').classList.add('hidden');
+          clearInterval(callTimerInterval);
+          activeConversation = null;
+          setTimeout(() => {
+            document.getElementById('call-overlay').classList.remove('active');
+          }, 1500);
+        },
+        onError: (error) => {
+          console.error('Call error:', error);
+          document.getElementById('call-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-red-400';
+          document.getElementById('call-status-text').textContent = 'Error';
+          const errEl = document.getElementById('call-error');
+          errEl.textContent = error.message || 'Connection failed';
+          errEl.classList.remove('hidden');
+          document.getElementById('call-audio-viz').classList.add('hidden');
+        },
+      });
+    } catch(e) {
+      console.error('Failed to start call:', e);
+      document.getElementById('call-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-red-400';
+      document.getElementById('call-status-text').textContent = 'Failed to connect';
+      const errEl = document.getElementById('call-error');
+      errEl.textContent = e.message || 'Could not load voice SDK';
+      errEl.classList.remove('hidden');
+    }
   }
 
-  function closeWidget() {
-    document.getElementById('widget-overlay').classList.remove('active');
-    document.getElementById('widget-container').innerHTML = '';
+  function updateCallTimer() {
+    if (!callStartTime) return;
+    const secs = Math.floor((Date.now() - callStartTime) / 1000);
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    document.getElementById('call-timer').textContent = m + ':' + String(s).padStart(2, '0');
+  }
+
+  async function endCall() {
+    clearInterval(callTimerInterval);
+    if (activeConversation) {
+      try { await activeConversation.endSession(); } catch(e) { /* ignore */ }
+      activeConversation = null;
+    }
+    document.getElementById('call-overlay').classList.remove('active');
   }
 
   /* ── Archive ── */
@@ -868,80 +958,6 @@ const App = (function() {
     document.getElementById('result-link').style.display = 'none';
     renderResultAgents();
     showView('result');
-  }
-
-  /* ── Settings ── */
-  async function loadSettings() {
-    const container = document.getElementById('settings-agents');
-    container.innerHTML = '<div class="flex justify-center py-8"><div class="w-6 h-6 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>';
-
-    try {
-      const res = await fetch('/api/agents');
-      const data = await res.json();
-      agentsData = data.agents || [];
-
-      let html = '';
-      for (const a of agentsData) {
-        html += `<div class="space-y-2">
-          <div class="flex items-center gap-2 mb-2">
-            <span class="material-icons text-lg" style="color:var(--ac)">${esc(a.icon)}</span>
-            <span class="font-semibold text-sm text-slate-700">${esc(a.name)}</span>
-            <span class="text-[10px] text-slate-400 ml-auto">${a.kb_count} docs</span>
-          </div>
-          <div id="settings-kb-${a.slug}" class="space-y-1">
-            <div class="text-[11px] text-slate-400 py-2 text-center">Loading...</div>
-          </div>
-        </div>`;
-      }
-      container.innerHTML = html;
-
-      // Load KB for each agent
-      for (const a of agentsData) {
-        loadAgentKB(a.slug);
-      }
-    } catch(e) {
-      container.innerHTML = '<p class="text-sm text-red-400 text-center py-8">Failed to load agents</p>';
-    }
-  }
-
-  async function loadAgentKB(slug) {
-    const container = document.getElementById('settings-kb-' + slug);
-    try {
-      const res = await fetch(`/api/agents/${slug}/kb`);
-      const data = await res.json();
-      const docs = data.documents || [];
-
-      if (!docs.length) {
-        container.innerHTML = '<div class="text-[11px] text-slate-400 py-2 text-center">No documents attached</div>';
-        return;
-      }
-
-      container.innerHTML = docs.map(d => {
-        const id = d.id || d.document_id || '';
-        const name = d.name || id;
-        return `<div class="kb-item">
-          <div class="flex-1 min-w-0">
-            <div class="text-xs text-slate-600 truncate">${esc(name)}</div>
-            <div class="text-[10px] text-slate-400 font-mono truncate">${esc(id)}</div>
-          </div>
-          <button onclick="App.detachKB('${esc(slug)}','${esc(id)}')" class="ml-2 p-1 rounded-lg hover:bg-red-50 transition-colors group" title="Detach">
-            <span class="material-icons text-slate-300 group-hover:text-red-400 text-lg">link_off</span>
-          </button>
-        </div>`;
-      }).join('');
-    } catch(e) {
-      container.innerHTML = '<div class="text-[11px] text-red-400 py-2 text-center">Failed to load</div>';
-    }
-  }
-
-  async function detachKB(slug, docId) {
-    if (!confirm('Detach this document?')) return;
-    try {
-      await fetch(`/api/agents/${slug}/kb/${docId}`, { method: 'DELETE' });
-      loadAgentKB(slug);
-    } catch(e) {
-      alert('Failed to detach: ' + e.message);
-    }
   }
 
   /* ── Stats ── */
@@ -1029,7 +1045,7 @@ const App = (function() {
   })();
 
   /* ── Public API ── */
-  return { showView, retry, assignToAgent, openWidget, closeWidget, archiveChat, detachKB, useSuggested, forceStart, resumeProgress };
+  return { showView, retry, assignToAgent, startCall, endCall, archiveChat, useSuggested, forceStart, resumeProgress };
 })();
 </script>
 </body>
