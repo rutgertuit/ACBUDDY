@@ -13,6 +13,7 @@ from app.agents.iterative_researcher import run_iterative_study
 from app.agents.deep_research import build_researcher
 from app.agents.qa_anticipator import build_qa_anticipator
 from app.agents.synthesis_evaluator import evaluate_synthesis
+from app.agents.strategic_analyst import run_strategic_analysis
 from app.models.research_result import ResearchResult, StudyResult, QAClusterResult
 
 logger = logging.getLogger(__name__)
@@ -422,6 +423,22 @@ Be comprehensive. Mark any remaining areas of uncertainty explicitly."""
             else:
                 logger.warning("Refinement produced empty result, keeping previous synthesis")
                 break
+
+    # ---- Phase 4c: Strategic Analysis ----
+    if result.master_synthesis:
+        logger.info("DEEP Phase 4c: Strategic analysis")
+        try:
+            result.strategic_analysis = await run_strategic_analysis(
+                query=query,
+                master_synthesis=result.master_synthesis,
+                model=MODEL,
+            )
+            logger.info(
+                "DEEP Phase 4c complete: strategic analysis %d chars",
+                len(result.strategic_analysis),
+            )
+        except Exception:
+            logger.exception("Strategic analysis failed, continuing without it")
 
     # ---- Phase 5: Anticipatory Q&A Research ----
     if not result.master_synthesis:

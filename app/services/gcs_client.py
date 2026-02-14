@@ -150,6 +150,13 @@ def generate_html(result: ResearchResult, query: str, depth: str) -> str:
                 f"{_md_to_html(result.master_synthesis)}\n</section>"
             )
 
+        # Strategic analysis
+        if result.strategic_analysis:
+            sections.append(
+                f'<section id="strategy">\n<h2>Strategic Analysis</h2>\n'
+                f"{_md_to_html(result.strategic_analysis)}\n</section>"
+            )
+
         # Individual studies
         if result.studies:
             study_parts: list[str] = []

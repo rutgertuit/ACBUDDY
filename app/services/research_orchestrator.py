@@ -206,6 +206,11 @@ def _build_consolidated_text(result, query: str, depth: str) -> str:
             parts.append(result.master_synthesis)
             parts.append("")
 
+        if result.strategic_analysis:
+            parts.append("=== STRATEGIC ANALYSIS ===")
+            parts.append(result.strategic_analysis)
+            parts.append("")
+
         if result.studies:
             for i, study in enumerate(result.studies, 1):
                 if study.synthesis:

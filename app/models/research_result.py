@@ -40,6 +40,9 @@ class ResearchResult:
     qa_summary_doc_id: str = ""
     all_doc_ids: list[str] = field(default_factory=list)
 
+    # Strategic analysis (populated by strategic analyst)
+    strategic_analysis: str = ""
+
     # Synthesis quality (populated by synthesis evaluator)
     synthesis_score: float = 0.0
     synthesis_scores: dict = field(default_factory=dict)
