@@ -7,7 +7,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
-from app.agents.deep_research import _web_search
+from app.agents.deep_research import web_search
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ async def check_watch(query: str) -> str:
         name="watch_checker",
         model=MODEL,
         instruction=CHECKER_INSTRUCTION,
-        tools=[_web_search],
+        tools=[web_search],
         output_key="watch_findings",
     )
 

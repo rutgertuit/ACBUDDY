@@ -15,7 +15,7 @@ MAX_SEARCH_RETRIES = 3
 SEARCH_INITIAL_BACKOFF = 2
 
 
-def _web_search(query: str) -> str:
+def web_search(query: str) -> str:
     """Search the web using Gemini's built-in search grounding and return results.
 
     Args:
@@ -90,7 +90,7 @@ def _web_search(query: str) -> str:
     return f"Search failed after retries: {last_error}"
 
 
-def _pull_sources(urls: list[str]) -> str:
+def pull_sources(urls: list[str]) -> str:
     """Fetch URLs, strip HTML tags, and return truncated plain text.
 
     Args:
@@ -138,7 +138,7 @@ def _pull_sources(urls: list[str]) -> str:
     return "\n---\n".join(results)
 
 
-def _search_news(query: str) -> str:
+def search_news(query: str) -> str:
     """Search recent news articles for current events, market developments, and media coverage.
 
     Use this tool when the research question involves:
@@ -173,7 +173,7 @@ def _search_news(query: str) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def _search_grok(query: str) -> str:
+def search_grok(query: str) -> str:
     """Search using Grok for real-time web and social media insights.
 
     Use this tool when the research question involves:
@@ -197,7 +197,7 @@ def _search_grok(query: str) -> str:
     return result or f"No results from Grok for: {query}"
 
 
-def _deep_reason(question: str, context: str) -> str:
+def deep_reason(question: str, context: str) -> str:
     """Use OpenAI for deep analytical reasoning over complex questions.
 
     Use this tool when the research question requires:
@@ -224,7 +224,7 @@ def _deep_reason(question: str, context: str) -> str:
     return result or f"No reasoning output for: {question}"
 
 
-def _search_financial(query: str) -> str:
+def search_financial(query: str) -> str:
     """Search for financial data including stock prices, company fundamentals, and SEC filings.
 
     Use this tool when the research involves:
@@ -273,7 +273,7 @@ def _search_financial(query: str) -> str:
     return "\n".join(parts) if parts else f"No financial data found for: {query}"
 
 
-def _search_company(company_name: str) -> str:
+def search_company(company_name: str) -> str:
     """Search for company profile and competitive intelligence.
 
     Use this tool when the research involves:
@@ -365,16 +365,16 @@ def build_researcher(index: int, model: str = "gemini-2.5-flash", prefix: str = 
         Configured LlmAgent for deep research.
     """
     # Include multi-source tools only when API keys are configured
-    tools = [_web_search, _pull_sources]
+    tools = [web_search, pull_sources]
     if os.getenv("NEWSAPI_KEY", ""):
-        tools.append(_search_news)
+        tools.append(search_news)
     if os.getenv("GROK_API_KEY", ""):
-        tools.append(_search_grok)
+        tools.append(search_grok)
     if os.getenv("OPENAI_API_KEY", ""):
-        tools.append(_deep_reason)
+        tools.append(deep_reason)
     # Domain tools — always available (they handle missing keys gracefully)
-    tools.append(_search_financial)
-    tools.append(_search_company)
+    tools.append(search_financial)
+    tools.append(search_company)
 
     return LlmAgent(
         name=f"researcher_{index}",

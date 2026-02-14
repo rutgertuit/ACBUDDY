@@ -7,7 +7,7 @@ import logging
 
 from google.adk.agents import LlmAgent
 
-from app.agents.deep_research import _web_search, _pull_sources
+from app.agents.deep_research import web_search, pull_sources
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ def build_fact_checker(index: int, model: str = "gemini-2.5-flash", prefix: str 
         name=f"fact_checker_{index}",
         model=model,
         instruction=FACT_CHECKER_INSTRUCTION,
-        tools=[_web_search, _pull_sources],
+        tools=[web_search, pull_sources],
         output_key=f"{prefix}_{index}",
     )
 
@@ -99,7 +99,7 @@ def build_devils_advocate(index: int, model: str = "gemini-2.5-flash", prefix: s
         name=f"devils_advocate_{index}",
         model=model,
         instruction=DEVILS_ADVOCATE_INSTRUCTION,
-        tools=[_web_search, _pull_sources],
+        tools=[web_search, pull_sources],
         output_key=f"{prefix}_{index}",
     )
 
@@ -111,6 +111,6 @@ def build_domain_expert(index: int, domain: str, model: str = "gemini-2.5-flash"
         name=f"domain_expert_{domain.replace(' ', '_')}_{index}",
         model=model,
         instruction=instruction,
-        tools=[_web_search, _pull_sources],
+        tools=[web_search, pull_sources],
         output_key=f"{prefix}_{index}",
     )
