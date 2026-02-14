@@ -34,6 +34,8 @@ class JobInfo:
     current_step: str = ""  # e.g. "study_2", "synthesis", "refinement"
     # Phase timing: {phase_name: {"start": epoch, "end": epoch}}
     phase_timings: dict = field(default_factory=dict)
+    # Research stats: {web_searches, pages_read, ...}
+    research_stats: dict = field(default_factory=dict)
     _last_phase_key: str = ""
 
 

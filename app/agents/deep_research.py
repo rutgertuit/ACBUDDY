@@ -7,6 +7,7 @@ import requests
 from google.adk.agents import LlmAgent
 
 from app.services import news_client, grok_client, openai_client
+from app.services.research_stats import increment
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ def _web_search(query: str) -> str:
     backoff = SEARCH_INITIAL_BACKOFF
     last_error = None
 
+    increment("web_searches")
+
     for attempt in range(MAX_SEARCH_RETRIES):
         try:
             response = client.models.generate_content(
@@ -48,11 +51,15 @@ def _web_search(query: str) -> str:
 
             # Extract grounding metadata if available
             candidate = response.candidates[0] if response.candidates else None
+            source_count = 0
             if candidate and candidate.grounding_metadata:
                 chunks = candidate.grounding_metadata.grounding_chunks or []
                 for chunk in chunks:
                     if chunk.web:
                         result_parts.append(f"[Source: {chunk.web.title} - {chunk.web.uri}]")
+                        source_count += 1
+            if source_count:
+                increment("pages_read", source_count)
 
             return "\n".join(result_parts) if result_parts else f"No results found for: {query}"
         except Exception as e:
@@ -86,6 +93,7 @@ def _pull_sources(urls: list[str]) -> str:
         Combined text content from all successfully fetched URLs.
     """
     results = []
+    fetched = 0
     for url in urls[:5]:  # Limit to 5 URLs
         try:
             resp = requests.get(url, timeout=15, headers={"User-Agent": "ACBUDDY-Research/1.0"})
@@ -96,9 +104,12 @@ def _pull_sources(urls: list[str]) -> str:
             text = re.sub(r"\s+", " ", text).strip()
             # Truncate to 5K chars per source
             results.append(f"[Source: {url}]\n{text[:5000]}\n")
+            fetched += 1
         except Exception as e:
             logger.warning("Failed to fetch %s: %s", url, e)
             results.append(f"[Source: {url}] Error: {e}\n")
+    increment("urls_fetched", len(urls[:5]))
+    increment("pages_read", fetched)
     return "\n---\n".join(results)
 
 
@@ -121,10 +132,12 @@ def _search_news(query: str) -> str:
     if not api_key:
         return "News search unavailable (no API key configured)"
 
+    increment("news_searches")
     articles = news_client.search_news(query=query, api_key=api_key)
     if not articles:
         return f"No recent news found for: {query}"
 
+    increment("news_articles", len(articles))
     parts = []
     for art in articles:
         parts.append(
@@ -154,6 +167,7 @@ def _search_grok(query: str) -> str:
     if not api_key:
         return "Grok search unavailable (no API key configured)"
 
+    increment("grok_queries")
     result = grok_client.search_with_grok(query=query, api_key=api_key)
     return result or f"No results from Grok for: {query}"
 
@@ -178,6 +192,7 @@ def _deep_reason(question: str, context: str) -> str:
     if not api_key:
         return "Deep reasoning unavailable (no API key configured)"
 
+    increment("reasoning_calls")
     result = openai_client.deep_reason(
         question=question, context=context, api_key=api_key
     )

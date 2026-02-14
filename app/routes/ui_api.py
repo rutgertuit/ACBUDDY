@@ -140,6 +140,7 @@ def job_status(job_id: str):
         "study_progress": job.study_progress,
         "current_step": job.current_step,
         "phase_timings": job.phase_timings,
+        "research_stats": job.research_stats,
     })
 
 

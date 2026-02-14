@@ -84,6 +84,34 @@ tailwind.config = {
   /* Call overlay pulse */
   @keyframes call-ring { 0%{transform:scale(1);opacity:0.4} 100%{transform:scale(1.3);opacity:0} }
   #call-pulse-ring:not(.hidden) { animation: call-ring 2s ease-out infinite; }
+
+  /* Research stats */
+  @keyframes count-up { from{opacity:0.5;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+  .stat-flash { animation: count-up 0.3s ease-out; }
+  .stats-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+  .stat-card {
+    background: rgba(255,255,255,0.5);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.7);
+    border-radius: 12px; padding: 8px 6px; text-align: center;
+  }
+  .stat-value { font-size:1.15rem; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.2; }
+  .stat-label { font-size:9px; text-transform:uppercase; letter-spacing:0.08em; color:#94a3b8; margin-top:2px; }
+
+  /* Parallel cluster node */
+  @keyframes node-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(13,204,242,0.3)} 50%{box-shadow:0 0 0 6px rgba(13,204,242,0)} }
+  .cluster-node { border-radius:10px; padding:4px 10px; font-size:11px; transition:all 0.3s; }
+  .cluster-node.active { background:rgba(13,204,242,0.1); border:1px solid rgba(13,204,242,0.3); color:#0891b2; animation:node-pulse 2s infinite; }
+  .cluster-node.done { background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); color:#059669; }
+  .cluster-node.pending { background:rgba(0,0,0,0.03); border:1px solid rgba(0,0,0,0.06); color:#94a3b8; }
+  .cluster-node.failed { background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#dc2626; }
+
+  /* Human hours hero */
+  .human-hours-hero {
+    background: linear-gradient(135deg, rgba(13,204,242,0.08), rgba(139,92,246,0.08));
+    border: 1px solid rgba(13,204,242,0.15);
+    border-radius: 14px; padding: 10px 16px; text-align: center;
+  }
 </style>
 </head>
 <body class="font-display text-slate-600 flex flex-col items-center overflow-x-hidden">
@@ -125,19 +153,8 @@ tailwind.config = {
       </div>
     </header>
 
-    <!-- Active research banner (shown when job is running) -->
-    <div id="active-research-banner" class="hidden mt-4 cursor-pointer" onclick="App.resumeProgress()">
-      <div class="glass-panel rounded-xl p-3 shadow-glass border border-primary/20 flex items-center gap-3">
-        <div class="relative w-8 h-8 flex-shrink-0">
-          <div class="absolute inset-0 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 1.2s linear infinite"></div>
-        </div>
-        <div class="flex-1 min-w-0">
-          <div class="text-xs font-semibold text-slate-700 truncate" id="banner-query"></div>
-          <div class="text-[10px] text-slate-400"><span id="banner-phase">Running...</span> &middot; <span id="banner-countdown" class="text-primary font-mono">--:--</span> remaining</div>
-        </div>
-        <span class="material-icons text-primary text-lg">arrow_forward</span>
-      </div>
-    </div>
+    <!-- Active research banners (one per running job) -->
+    <div id="active-jobs-banners" class="space-y-2 mt-4"></div>
 
     <!-- Input + Button -->
     <div class="flex-1 flex flex-col items-center justify-center w-full space-y-10 -mt-4">
@@ -265,6 +282,58 @@ tailwind.config = {
           <span id="progress-start" class="text-[10px] text-slate-400 font-mono">--:--</span>
           <span id="progress-pct" class="text-[10px] text-primary font-semibold">0%</span>
           <span id="progress-eta" class="text-[10px] text-slate-400 font-mono">--:--</span>
+        </div>
+      </div>
+
+      <!-- Research Intelligence Dashboard -->
+      <div id="research-stats" class="w-full hidden">
+        <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold px-1 mb-2">Research Intelligence</div>
+        <div class="stats-grid mb-3">
+          <div class="stat-card">
+            <div class="stat-value text-primary" id="stat-searches">0</div>
+            <div class="stat-label">Searches</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-primary" id="stat-pages">0</div>
+            <div class="stat-label">Pages Read</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-amber-500" id="stat-news">0</div>
+            <div class="stat-label">News</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-violet-500" id="stat-ai">0</div>
+            <div class="stat-label">AI Analyses</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-emerald-500" id="stat-sources">0</div>
+            <div class="stat-label">URLs Fetched</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value text-rose-500" id="stat-grok">0</div>
+            <div class="stat-label">Social Intel</div>
+          </div>
+        </div>
+        <!-- Human Hours Hero -->
+        <div class="human-hours-hero mb-3">
+          <div class="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-1">Equivalent Human Effort</div>
+          <div class="flex items-baseline justify-center gap-1">
+            <span id="stat-human-hours" class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-primary to-violet-500">0</span>
+            <span class="text-sm text-slate-400 font-medium">hours</span>
+          </div>
+          <div id="stat-hours-breakdown" class="text-[10px] text-slate-400 mt-1"></div>
+        </div>
+      </div>
+
+      <!-- Parallel Research Cluster (visible when multiple studies run) -->
+      <div id="parallel-cluster" class="w-full hidden">
+        <div class="glass-panel rounded-xl p-3 shadow-glass border border-primary/10">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="material-icons text-primary text-sm">device_hub</span>
+            <span class="text-[10px] uppercase tracking-wider text-primary font-semibold">Parallel Research Cluster</span>
+            <span id="cluster-count" class="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold"></span>
+          </div>
+          <div id="cluster-nodes" class="flex flex-wrap gap-1.5"></div>
         </div>
       </div>
 
@@ -432,17 +501,38 @@ const App = (function() {
   /* ── State ── */
   let currentView = 'home';
   let selectedDepth = 'STANDARD';
-  let currentJobId = null;
+  let activeJobs = {};       // {jobId: {query, depth, startTime, estimatedSeconds, phase, status, phaseTimings, researchStats}}
+  let viewingJobId = null;   // Which job is shown in progress view
   let pollTimer = null;
   let elapsedTimer = null;
-  let startTime = null;
   let lastQuery = '';
   let lastDocId = '';
   let lastDocName = '';
   let agentsData = [];
+  let historicalTimings = null;
+  let pipelineRendered = false;
+  let lastRenderedStats = {};
+
+  const PHASE_ORDER = ['planning', 'studies', 'synthesis', 'evaluation', 'refinement', 'strategic_analysis', 'qa', 'upload'];
+  const PIPELINE_STEPS = [
+    {id:'planning', label:'Planning studies', icon:'psychology'},
+    {id:'studies', label:'Researching studies', icon:'science'},
+    {id:'synthesis', label:'Master synthesis', icon:'auto_awesome'},
+    {id:'evaluation', label:'Quality evaluation', icon:'fact_check'},
+    {id:'refinement', label:'Refining synthesis', icon:'refresh'},
+    {id:'strategic_analysis', label:'Strategic frameworks', icon:'analytics'},
+    {id:'qa', label:'Anticipated Q&A', icon:'forum'},
+  ];
 
   /* ── Helpers ── */
   function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+  function fmtTime(secs) {
+    if (secs < 0) secs = 0;
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  }
+  function hasActiveJobs() { return Object.keys(activeJobs).length > 0; }
 
   /* ── View Navigation ── */
   function showView(name) {
@@ -451,11 +541,9 @@ const App = (function() {
     if (el) el.classList.add('active');
     currentView = name;
 
-    // Highlight active nav
     document.querySelectorAll('.nav-btn').forEach(b => {
       const icon = b.querySelector('.material-icons');
-      if (icon) icon.classList.remove('text-primary');
-      if (icon) icon.classList.add('text-slate-400');
+      if (icon) { icon.classList.remove('text-primary'); icon.classList.add('text-slate-400'); }
     });
     const navBtn = document.querySelector(`.nav-btn[data-view="${name}"]`);
     if (navBtn) {
@@ -465,7 +553,7 @@ const App = (function() {
 
     if (name === 'archive') loadArchive();
     if (name === 'chat') loadChatAgents();
-    if (name === 'home') { loadStats(); updateBanner(); }
+    if (name === 'home') { loadStats(); renderBanners(); }
   }
 
   /* ── Bottom nav ── */
@@ -489,7 +577,6 @@ const App = (function() {
   /* ── ACTIVATE ── */
   const activateBtn = document.getElementById('activate-btn');
   const queryInput = document.getElementById('query-input');
-  let estimatedSeconds = 300;
   let suggestedQuery = '';
 
   activateBtn.addEventListener('click', async () => {
@@ -500,18 +587,14 @@ const App = (function() {
     lastQuery = query;
 
     try {
-      // For DEEP: validate query clarity first
       if (selectedDepth === 'DEEP') {
-        document.getElementById('phase-text').textContent = 'Evaluating query clarity...';
         const valRes = await fetch('/api/research/validate', {
           method: 'POST',
           headers: {'Content-Type':'application/json'},
           body: JSON.stringify({ query, depth: selectedDepth })
         });
         const val = await valRes.json();
-
         if (!val.clear) {
-          // Show validation view
           document.getElementById('validate-feedback').textContent = val.feedback || 'Your query could be more specific.';
           const sugBox = document.getElementById('validate-suggested');
           const sugBtn = document.getElementById('validate-use-suggested');
@@ -529,7 +612,6 @@ const App = (function() {
           return;
         }
       }
-
       await launchResearch(query);
     } catch(e) {
       alert('Failed to start: ' + e.message);
@@ -547,172 +629,349 @@ const App = (function() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Request failed');
 
-    currentJobId = data.job_id;
-    estimatedSeconds = data.estimated_seconds || 300;
-    startTime = Date.now();
+    const jobId = data.job_id;
+    const estSecs = data.estimated_seconds || 300;
+    const now = Date.now();
 
-    // Persist to localStorage
-    localStorage.setItem('activeJob', JSON.stringify({
-      jobId: currentJobId,
-      query: query,
-      depth: selectedDepth,
-      startTime: startTime,
-      estimatedSeconds: estimatedSeconds,
-    }));
+    // Add to active jobs
+    activeJobs[jobId] = {
+      query, depth: selectedDepth, startTime: now,
+      estimatedSeconds: estSecs, phase: 'Starting...', status: 'running',
+      phaseTimings: {}, researchStats: {}, studyProgress: [], currentStep: '',
+    };
+    viewingJobId = jobId;
+    persistActiveJobs();
 
-    // Set start/ETA times in progress bar
-    const now = new Date();
-    const eta = new Date(now.getTime() + estimatedSeconds * 1000);
-    document.getElementById('progress-start').textContent = now.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',hour12:false});
-    document.getElementById('progress-eta').textContent = eta.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',hour12:false});
+    // Reset and prepare progress view
+    resetProgressView(now, estSecs);
 
-    // Reset progress trackers
+    if (selectedDepth === 'DEEP') fetchTimingEstimates();
+
+    // Start polling if not already running
+    ensurePolling();
+
+    showView('progress');
+    queryInput.value = '';
+  }
+
+  function resetProgressView(startMs, estSecs) {
     pipelineRendered = false;
+    lastRenderedStats = {};
     document.getElementById('study-tracker').classList.add('hidden');
     document.getElementById('pipeline-steps').classList.add('hidden');
+    document.getElementById('research-stats').classList.add('hidden');
+    document.getElementById('parallel-cluster').classList.add('hidden');
     document.getElementById('study-list').innerHTML = '';
     document.getElementById('step-list').innerHTML = '';
     document.getElementById('phase-text').textContent = 'Starting...';
     document.getElementById('progress-bar').style.width = '0%';
     document.getElementById('progress-pct').textContent = '0%';
-
-    showView('progress');
-    startPolling();
+    const start = new Date(startMs);
+    const eta = new Date(startMs + estSecs * 1000);
+    document.getElementById('progress-start').textContent = start.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false});
+    document.getElementById('progress-eta').textContent = eta.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:false});
   }
 
   function useSuggested() {
-    if (suggestedQuery) {
-      queryInput.value = suggestedQuery;
-      lastQuery = suggestedQuery;
-    }
+    if (suggestedQuery) { queryInput.value = suggestedQuery; lastQuery = suggestedQuery; }
     forceStart();
   }
-
   async function forceStart() {
     activateBtn.disabled = true;
-    try {
-      await launchResearch(lastQuery);
-    } catch(e) {
-      alert('Failed to start: ' + e.message);
-      showView('home');
-    } finally {
-      activateBtn.disabled = false;
+    try { await launchResearch(lastQuery); }
+    catch(e) { alert('Failed to start: ' + e.message); showView('home'); }
+    finally { activateBtn.disabled = false; }
+  }
+  queryInput.addEventListener('keydown', e => { if (e.key === 'Enter') activateBtn.click(); });
+
+  /* ── localStorage persistence for active jobs ── */
+  function persistActiveJobs() {
+    const toSave = {};
+    for (const [jid, j] of Object.entries(activeJobs)) {
+      toSave[jid] = { query: j.query, depth: j.depth, startTime: j.startTime, estimatedSeconds: j.estimatedSeconds };
     }
+    localStorage.setItem('activeJobs', JSON.stringify(toSave));
+  }
+  function removeActiveJob(jobId) {
+    delete activeJobs[jobId];
+    if (viewingJobId === jobId) viewingJobId = Object.keys(activeJobs)[0] || null;
+    persistActiveJobs();
+    renderBanners();
+    if (!hasActiveJobs()) stopPolling();
   }
 
-  // Also activate on Enter
-  queryInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') activateBtn.click();
-  });
-
-  /* ── Polling ── */
-  // Historical timing data for smart estimates
-  let historicalTimings = null;  // {phase_averages: {planning: 30, studies: 1200, ...}, total_average: 2400}
-  const PHASE_ORDER = ['planning', 'studies', 'synthesis', 'evaluation', 'refinement', 'strategic_analysis', 'qa', 'upload'];
+  /* ── Polling — shared timer for ALL active jobs ── */
+  function ensurePolling() {
+    if (pollTimer) return;
+    updateTimers();
+    elapsedTimer = setInterval(updateTimers, 1000);
+    pollAllJobs();
+    pollTimer = setInterval(pollAllJobs, 3000);
+  }
+  function stopPolling() {
+    clearInterval(pollTimer); clearInterval(elapsedTimer);
+    pollTimer = null; elapsedTimer = null;
+  }
 
   async function fetchTimingEstimates() {
     try {
       const res = await fetch('/api/timing-estimates');
       if (res.ok) {
         historicalTimings = await res.json();
-        if (historicalTimings.total_average > 0) {
-          estimatedSeconds = historicalTimings.total_average;
+        if (historicalTimings.total_average > 0 && viewingJobId && activeJobs[viewingJobId]) {
+          activeJobs[viewingJobId].estimatedSeconds = historicalTimings.total_average;
         }
       }
     } catch(e) { /* use default */ }
   }
 
-  function startPolling() {
-    if (!startTime) startTime = Date.now();
-    if (selectedDepth === 'DEEP') fetchTimingEstimates();
-    updateTimers();
-    elapsedTimer = setInterval(updateTimers, 1000);
-    poll();
-    pollTimer = setInterval(poll, 3000);
-  }
-
-  function stopPolling() {
-    clearInterval(pollTimer); clearInterval(elapsedTimer);
-    pollTimer = null; elapsedTimer = null;
-  }
-
-  function fmtTime(secs) {
-    if (secs < 0) secs = 0;
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
-    return m + ':' + String(s).padStart(2, '0');
-  }
-
-  let currentPhaseTimings = {};  // live timings from status API
-
-  function computeSmartEstimate() {
-    // If no historical data, fall back to static estimate
+  function computeSmartEstimate(job) {
     if (!historicalTimings || !historicalTimings.phase_averages || historicalTimings.sample_count === 0) {
-      const elapsedSecs = (Date.now() - startTime) / 1000;
-      return Math.max(0, estimatedSeconds - elapsedSecs);
+      const elapsed = (Date.now() - job.startTime) / 1000;
+      return Math.max(0, job.estimatedSeconds - elapsed);
     }
     const avgs = historicalTimings.phase_averages;
-    // Sum up expected remaining time from phases not yet completed
-    let remaining = 0;
-    let foundCurrent = false;
+    const pt = job.phaseTimings || {};
+    let remaining = 0, foundCurrent = false;
     for (const phase of PHASE_ORDER) {
       const avg = avgs[phase] || 0;
-      const live = currentPhaseTimings[phase];
-      if (live && live.duration) {
-        // Phase completed — already elapsed, skip
-        continue;
-      } else if (live && live.start && !live.end) {
-        // Currently in this phase — remaining = avg - time_spent_so_far
+      const live = pt[phase];
+      if (live && live.duration) continue;
+      else if (live && live.start && !live.end) {
         foundCurrent = true;
         const spent = Date.now() / 1000 - live.start;
         remaining += Math.max(0, avg - spent);
-      } else if (foundCurrent || (!live && !foundCurrent)) {
-        // Haven't reached this phase yet — if we're past it in PHASE_ORDER and have a current,
-        // add full average. If we haven't found current yet, this phase may have been skipped.
-        if (foundCurrent) {
-          remaining += avg;
-        }
+      } else if (foundCurrent) {
+        remaining += avg;
       }
     }
     return remaining;
   }
 
   function updateTimers() {
-    if (!startTime) return;
-    const elapsedSecs = (Date.now() - startTime) / 1000;
-    const remaining = computeSmartEstimate();
-    const totalEst = elapsedSecs + remaining;
-    const pct = totalEst > 0 ? Math.min(99, (elapsedSecs / totalEst) * 100) : 0;
+    if (!viewingJobId || !activeJobs[viewingJobId]) return;
+    const job = activeJobs[viewingJobId];
+    const elapsed = (Date.now() - job.startTime) / 1000;
+    const remaining = computeSmartEstimate(job);
+    const totalEst = elapsed + remaining;
+    const pct = totalEst > 0 ? Math.min(99, (elapsed / totalEst) * 100) : 0;
 
-    document.getElementById('elapsed').textContent = fmtTime(elapsedSecs);
+    document.getElementById('elapsed').textContent = fmtTime(elapsed);
     document.getElementById('countdown').textContent = remaining > 0 ? fmtTime(remaining) : 'Any moment...';
     document.getElementById('progress-bar').style.width = pct.toFixed(1) + '%';
     document.getElementById('progress-pct').textContent = Math.floor(pct) + '%';
-
-    // Also update banner countdown
-    const bc = document.getElementById('banner-countdown');
-    if (bc) bc.textContent = remaining > 0 ? fmtTime(remaining) : 'finishing';
   }
 
+  /* ── Poll all active jobs ── */
   let lastPhase = '';
-  const PIPELINE_STEPS = [
-    {id:'planning', label:'Planning studies', icon:'psychology'},
-    {id:'studies', label:'Researching studies', icon:'science'},
-    {id:'synthesis', label:'Master synthesis', icon:'auto_awesome'},
-    {id:'evaluation', label:'Quality evaluation', icon:'fact_check'},
-    {id:'refinement', label:'Refining synthesis', icon:'refresh'},
-    {id:'strategic_analysis', label:'Strategic frameworks', icon:'analytics'},
-    {id:'qa', label:'Anticipated Q&A', icon:'forum'},
-  ];
-  let pipelineRendered = false;
 
+  async function pollAllJobs() {
+    const jobIds = Object.keys(activeJobs);
+    if (!jobIds.length) return;
+
+    for (const jobId of jobIds) {
+      try {
+        const res = await fetch('/api/status/' + jobId);
+        if (!res.ok) {
+          if (res.status === 404) {
+            removeActiveJob(jobId);
+            if (currentView === 'progress' && !viewingJobId) {
+              document.getElementById('error-msg').textContent = 'Research session was lost (server restarted). Please start a new one.';
+              showView('error');
+            }
+          }
+          continue;
+        }
+        const data = await res.json();
+        const job = activeJobs[jobId];
+        if (!job) continue;
+
+        job.phase = data.phase || 'Working...';
+        job.status = data.status;
+        if (data.phase_timings) job.phaseTimings = data.phase_timings;
+        if (data.research_stats) job.researchStats = data.research_stats;
+        if (data.study_progress) job.studyProgress = data.study_progress;
+        if (data.current_step) job.currentStep = data.current_step;
+
+        // Update progress view if this is the viewing job
+        if (jobId === viewingJobId && currentView === 'progress') {
+          document.getElementById('phase-text').textContent = job.phase;
+
+          if (data.study_progress && data.study_progress.length) {
+            renderStudyTracker(data.study_progress);
+            renderParallelCluster(data.study_progress);
+          }
+          if (data.current_step) renderPipelineSteps(data.current_step);
+          if (data.research_stats) renderResearchStats(data.research_stats, job.depth);
+
+          // Mid-check
+          const midIcon = document.getElementById('mid-check-icon');
+          const midText = document.getElementById('mid-check-text');
+          if (data.status === 'running') {
+            if (job.phase !== lastPhase && lastPhase) {
+              midText.textContent = 'Phase update: ' + job.phase;
+            } else {
+              midText.textContent = 'Pipeline running normally';
+            }
+            midIcon.className = 'w-2 h-2 rounded-full bg-primary animate-pulse';
+          }
+          lastPhase = job.phase;
+        }
+
+        // Handle completion / failure
+        if (data.status === 'completed') {
+          if (jobId === viewingJobId && currentView === 'progress') {
+            document.getElementById('progress-bar').style.width = '100%';
+            document.getElementById('progress-pct').textContent = '100%';
+            document.getElementById('countdown').textContent = '0:00';
+            lastDocId = data.elevenlabs_doc_id || '';
+            lastDocName = 'Research: ' + (data.query||'').substring(0,60);
+            document.getElementById('result-query').textContent = data.query;
+            const link = document.getElementById('result-link');
+            if (data.result_url) { link.href = data.result_url; link.style.display = 'block'; }
+            else { link.style.display = 'none'; }
+            renderResultAgents();
+            setTimeout(() => showView('result'), 600);
+          }
+          removeActiveJob(jobId);
+        } else if (data.status === 'failed') {
+          if (jobId === viewingJobId && currentView === 'progress') {
+            document.getElementById('error-msg').textContent = data.error || 'An unknown error occurred';
+            setTimeout(() => showView('error'), 1500);
+          }
+          removeActiveJob(jobId);
+        }
+      } catch(e) { /* keep polling */ }
+    }
+
+    // Update banners on home
+    if (currentView === 'home') renderBanners();
+  }
+
+  /* ── Banners (multiple active jobs on home) ── */
+  function renderBanners() {
+    const container = document.getElementById('active-jobs-banners');
+    if (!container) return;
+    const entries = Object.entries(activeJobs).filter(([,j]) => j.status === 'running');
+    if (!entries.length) { container.innerHTML = ''; return; }
+
+    container.innerHTML = entries.map(([jid, j]) => {
+      const elapsed = (Date.now() - j.startTime) / 1000;
+      const remaining = computeSmartEstimate(j);
+      const stats = j.researchStats || {};
+      const pages = (stats.pages_read || 0) + (stats.news_articles || 0);
+      const searches = (stats.web_searches || 0) + (stats.news_searches || 0) + (stats.grok_queries || 0);
+      const statsText = searches > 0 ? ` · ${searches} searches · ${pages} pages` : '';
+      return `<div class="glass-panel rounded-xl p-3 shadow-glass border border-primary/20 flex items-center gap-3 cursor-pointer"
+                   onclick="App.viewJob('${esc(jid)}')">
+        <div class="relative w-8 h-8 flex-shrink-0">
+          <div class="absolute inset-0 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 1.2s linear infinite"></div>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="text-xs font-semibold text-slate-700 truncate">${esc(j.query)}</div>
+          <div class="text-[10px] text-slate-400">${esc(j.phase)}${statsText} · <span class="text-primary font-mono">${fmtTime(remaining)}</span> remaining</div>
+        </div>
+        <span class="material-icons text-primary text-lg">arrow_forward</span>
+      </div>`;
+    }).join('');
+  }
+
+  function viewJob(jobId) {
+    if (!activeJobs[jobId]) return;
+    viewingJobId = jobId;
+    const job = activeJobs[jobId];
+    resetProgressView(job.startTime, job.estimatedSeconds);
+    showView('progress');
+  }
+
+  /* ── Research Stats Display ── */
+  function renderResearchStats(stats, depth) {
+    if (!stats || typeof stats !== 'object') return;
+    const container = document.getElementById('research-stats');
+    const totalActivity = (stats.web_searches||0) + (stats.pages_read||0) + (stats.news_articles||0) + (stats.grok_queries||0) + (stats.reasoning_calls||0);
+    if (totalActivity === 0) return;
+
+    container.classList.remove('hidden');
+
+    // Animate counter changes
+    function setCounter(id, val) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const old = parseInt(el.textContent) || 0;
+      if (val !== old) {
+        el.textContent = val;
+        el.classList.remove('stat-flash');
+        void el.offsetWidth; // trigger reflow
+        el.classList.add('stat-flash');
+      }
+    }
+
+    const searches = (stats.web_searches||0) + (stats.news_searches||0) + (stats.grok_queries||0);
+    setCounter('stat-searches', searches);
+    setCounter('stat-pages', stats.pages_read || 0);
+    setCounter('stat-news', stats.news_articles || 0);
+    setCounter('stat-ai', stats.reasoning_calls || 0);
+    setCounter('stat-sources', stats.urls_fetched || 0);
+    setCounter('stat-grok', stats.grok_queries || 0);
+
+    // Human hours
+    const hh = stats.human_hours;
+    if (hh && hh.total_hours > 0) {
+      document.getElementById('stat-human-hours').textContent = hh.total_hours.toFixed(1);
+      const parts = [];
+      if (hh.searching_min > 0) parts.push(`${Math.round(hh.searching_min/60*10)/10}h searching`);
+      if (hh.reading_min > 0) parts.push(`${Math.round(hh.reading_min/60*10)/10}h reading`);
+      if (hh.analyzing_min > 0) parts.push(`${Math.round(hh.analyzing_min/60*10)/10}h analyzing`);
+      if (hh.writing_min > 0) parts.push(`${Math.round(hh.writing_min/60*10)/10}h writing`);
+      document.getElementById('stat-hours-breakdown').textContent = parts.join(' · ');
+    } else {
+      // Compute approximate human hours from raw stats
+      const searchMin = searches * 8;
+      const readMin = (stats.pages_read||0) * 5 + (stats.news_articles||0) * 3;
+      const analyzeMin = (stats.reasoning_calls||0) * 15;
+      const total = searchMin + readMin + analyzeMin;
+      if (total > 0) {
+        document.getElementById('stat-human-hours').textContent = (total / 60).toFixed(1);
+        document.getElementById('stat-hours-breakdown').textContent = 'Searching + reading + analysis equivalent';
+      }
+    }
+  }
+
+  /* ── Parallel Cluster Visualization ── */
+  function renderParallelCluster(studyProgress) {
+    if (!studyProgress || !studyProgress.length) return;
+    const running = studyProgress.filter(s => s.status === 'running');
+    const container = document.getElementById('parallel-cluster');
+    const nodesEl = document.getElementById('cluster-nodes');
+    const countEl = document.getElementById('cluster-count');
+
+    if (running.length < 2) {
+      container.classList.add('hidden');
+      return;
+    }
+
+    container.classList.remove('hidden');
+    countEl.textContent = running.length + ' parallel';
+
+    nodesEl.innerHTML = studyProgress.map((s, i) => {
+      let cls = 'pending';
+      if (s.status === 'running') cls = 'active';
+      else if (s.status === 'done') cls = 'done';
+      else if (s.status === 'failed') cls = 'failed';
+      const label = (s.title || 'Study '+(i+1)).substring(0, 30);
+      const icon = cls === 'active' ? '<div class="inline-block w-3 h-3 border-2 border-slate-200 border-t-primary rounded-full mr-1 align-middle" style="animation:spin 0.8s linear infinite"></div>' :
+                   cls === 'done' ? '<span class="material-icons text-xs align-middle mr-0.5">check</span>' :
+                   cls === 'failed' ? '<span class="material-icons text-xs align-middle mr-0.5">close</span>' : '';
+      return `<span class="cluster-node ${cls}">${icon}${esc(label)}</span>`;
+    }).join('');
+  }
+
+  /* ── Study Tracker ── */
   function renderStudyTracker(studyProgress) {
     const tracker = document.getElementById('study-tracker');
     const list = document.getElementById('study-list');
     if (!studyProgress || !studyProgress.length) { tracker.classList.add('hidden'); return; }
     tracker.classList.remove('hidden');
-    const done = studyProgress.filter(s => s.status === 'done').length;
-    const running = studyProgress.filter(s => s.status === 'running').length;
     list.innerHTML = studyProgress.map((s, i) => {
       let statusIcon, textClass;
       if (s.status === 'done') {
@@ -755,88 +1014,8 @@ const App = (function() {
     }).join('');
   }
 
-  async function poll() {
-    if (!currentJobId) return;
-    try {
-      const res = await fetch('/api/status/' + currentJobId);
-      if (!res.ok) {
-        // Job not found (e.g. after redeployment) — clean up stale state
-        if (res.status === 404) {
-          stopPolling();
-          localStorage.removeItem('activeJob');
-          currentJobId = null;
-          updateBanner();
-          document.getElementById('error-msg').textContent = 'Research session was lost (server restarted). Please start a new one.';
-          showView('error');
-        }
-        return;
-      }
-      const data = await res.json();
-
-      const phase = data.phase || 'Working...';
-      document.getElementById('phase-text').textContent = phase;
-      // Update banner phase
-      const bp = document.getElementById('banner-phase');
-      if (bp) bp.textContent = phase;
-
-      // Capture live phase timings for smart estimates
-      if (data.phase_timings) currentPhaseTimings = data.phase_timings;
-
-      // Render study tracker and pipeline steps for DEEP
-      if (data.study_progress && data.study_progress.length) {
-        renderStudyTracker(data.study_progress);
-      }
-      if (data.current_step) {
-        renderPipelineSteps(data.current_step);
-      }
-
-      // Mid-research status check
-      const midIcon = document.getElementById('mid-check-icon');
-      const midText = document.getElementById('mid-check-text');
-      if (data.status === 'running') {
-        if (phase !== lastPhase && lastPhase) {
-          midIcon.className = 'w-2 h-2 rounded-full bg-primary animate-pulse';
-          midText.textContent = 'Phase update: ' + phase;
-        } else {
-          midIcon.className = 'w-2 h-2 rounded-full bg-primary animate-pulse';
-          midText.textContent = 'Pipeline running normally';
-        }
-      }
-      lastPhase = phase;
-
-      if (data.status === 'completed') {
-        stopPolling();
-        localStorage.removeItem('activeJob');
-        currentJobId = null;
-        updateBanner();
-        document.getElementById('progress-bar').style.width = '100%';
-        document.getElementById('progress-pct').textContent = '100%';
-        document.getElementById('countdown').textContent = '0:00';
-        lastDocId = data.elevenlabs_doc_id || '';
-        lastDocName = 'Research: ' + (data.query||'').substring(0,60);
-        document.getElementById('result-query').textContent = data.query;
-        const link = document.getElementById('result-link');
-        if (data.result_url) { link.href = data.result_url; link.style.display = 'block'; }
-        else { link.style.display = 'none'; }
-        renderResultAgents();
-        setTimeout(() => showView('result'), 600);
-      } else if (data.status === 'failed') {
-        stopPolling();
-        localStorage.removeItem('activeJob');
-        currentJobId = null;
-        updateBanner();
-        midIcon.className = 'w-2 h-2 rounded-full bg-red-400';
-        midText.textContent = 'Error: ' + (data.error || 'Unknown error');
-        midText.classList.add('text-red-500');
-        document.getElementById('error-msg').textContent = data.error || 'An unknown error occurred';
-        setTimeout(() => showView('error'), 1500);
-      }
-    } catch(e) { /* keep polling */ }
-  }
-
   /* ── Shared agent card renderer ── */
   function renderAgentCard(a, mode) {
-    // mode: 'attach' (result view — assign + chat) or 'chat' (chat view — chat only)
     const docs = a.kb_docs || [];
     const kbHtml = docs.length
       ? docs.slice(0, 3).map(d => {
@@ -846,7 +1025,6 @@ const App = (function() {
       : '<span class="text-[10px] text-slate-300 italic">No research loaded</span>';
 
     if (mode === 'chat') {
-      // Chat view: simple card, opens widget directly
       return `<div class="agent-card agent-${esc(a.color)}" onclick="App.startCall('${esc(a.agent_id)}','${esc(a.name)}')">
         <div class="flex items-center gap-3 mb-2">
           <div class="w-10 h-10 rounded-full bg-white/80 shadow-inner-chrome flex items-center justify-center flex-shrink-0">
@@ -865,7 +1043,6 @@ const App = (function() {
       </div>`;
     }
 
-    // Attach mode (result view): assign button + separate chat button
     const cardId = 'agent-card-' + a.slug;
     return `<div id="${cardId}" class="agent-card agent-${esc(a.color)}">
       <div class="flex items-center gap-3 mb-2">
@@ -911,25 +1088,21 @@ const App = (function() {
     }
   }
 
-  /* ── Assign research to agent (with visual feedback) ── */
+  /* ── Assign research to agent ── */
   async function assignToAgent(slug, agentId, agentName) {
     if (!agentId) { alert('Agent not configured'); return; }
-
     const cardId = 'agent-card-' + slug;
     const actionsEl = document.getElementById(cardId + '-actions');
     if (!actionsEl) return;
 
     if (!lastDocId) {
-      actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-amber-500">
-        <span class="material-icons text-sm">warning</span> No research document available to assign
-      </div>`;
+      actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-amber-500"><span class="material-icons text-sm">warning</span> No research document available</div>`;
       return;
     }
 
-    // Show loading state
     actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-slate-400">
       <div class="w-4 h-4 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div>
-      Assigning research to ${esc(agentName)}...
+      Assigning to ${esc(agentName)}...
     </div>`;
 
     try {
@@ -939,46 +1112,32 @@ const App = (function() {
         body: JSON.stringify({ doc_id: lastDocId, doc_name: lastDocName })
       });
       const data = await res.json();
-
       if (res.ok) {
-        // Show success
         actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-emerald-600 font-semibold">
-          <span class="material-icons text-sm">check_circle</span> Research assigned to ${esc(agentName)}!
+          <span class="material-icons text-sm">check_circle</span> Assigned to ${esc(agentName)}!
         </div>
         <button onclick="App.startCall('${esc(agentId)}','${esc(agentName)}')"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-primary to-cyan-400 hover:opacity-90 transition-opacity mt-2">
           <span class="material-icons text-sm">chat</span> Chat with ${esc(agentName)}
         </button>`;
       } else {
-        actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-red-500">
-          <span class="material-icons text-sm">error</span> Failed: ${esc(data.error || 'Unknown error')}
-        </div>
-        <button onclick="App.assignToAgent('${esc(slug)}','${esc(agentId)}','${esc(agentName)}')"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors mt-1">
-          Retry
-        </button>`;
+        actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-red-500"><span class="material-icons text-sm">error</span> ${esc(data.error||'Failed')}</div>
+        <button onclick="App.assignToAgent('${esc(slug)}','${esc(agentId)}','${esc(agentName)}')" class="text-[11px] text-slate-500 underline mt-1">Retry</button>`;
       }
     } catch(e) {
-      actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-red-500">
-        <span class="material-icons text-sm">error</span> Connection failed
-      </div>
-      <button onclick="App.assignToAgent('${esc(slug)}','${esc(agentId)}','${esc(agentName)}')"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors mt-1">
-        Retry
-      </button>`;
+      actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-red-500"><span class="material-icons text-sm">error</span> Connection failed</div>
+      <button onclick="App.assignToAgent('${esc(slug)}','${esc(agentId)}','${esc(agentName)}')" class="text-[11px] text-slate-500 underline mt-1">Retry</button>`;
     }
   }
 
-  /* ── Chat view: agent cards ── */
+  /* ── Chat view ── */
   async function loadChatAgents() {
     const container = document.getElementById('chat-agents');
     container.innerHTML = '<div class="flex justify-center py-8"><div class="w-6 h-6 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>';
-
     try {
       const res = await fetch('/api/agents');
       const data = await res.json();
       agentsData = data.agents || [];
-
       container.innerHTML = agentsData.map(a => renderAgentCard(a, 'chat')).join('');
     } catch(e) {
       container.innerHTML = '<p class="text-sm text-red-400 text-center py-8">Failed to load agents</p>';
@@ -992,18 +1151,11 @@ const App = (function() {
 
   async function startCall(agentId, agentName) {
     if (!agentId) { alert('Agent not configured'); return; }
-
-    // Find agent metadata for icon/color/subtitle
     const agent = agentsData.find(a => a.agent_id === agentId) || {};
-
-    // Show call overlay in connecting state
-    document.getElementById('call-agent-icon').textContent = agent.icon || 'mic';
-    document.getElementById('call-agent-icon').style.color = `var(--ac)`;
-    document.getElementById('call-agent-icon').closest('.agent-cyan, .agent-amber, .agent-violet, [class]'); // fallback
     const iconEl = document.getElementById('call-agent-icon');
     const colorMap = { cyan: '#0dccf2', amber: '#f59e0b', violet: '#8b5cf6' };
+    iconEl.textContent = agent.icon || 'mic';
     iconEl.style.color = colorMap[agent.color] || '#0dccf2';
-
     document.getElementById('call-agent-name').textContent = agentName || 'Agent';
     document.getElementById('call-agent-subtitle').textContent = agent.subtitle || '';
     document.getElementById('call-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse';
@@ -1016,9 +1168,8 @@ const App = (function() {
 
     try {
       const { Conversation } = await import('https://cdn.jsdelivr.net/npm/@elevenlabs/client@0.14.0/+esm');
-
       activeConversation = await Conversation.startSession({
-        agentId: agentId,
+        agentId,
         onConnect: () => {
           document.getElementById('call-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
           document.getElementById('call-status-text').textContent = 'Connected';
@@ -1035,9 +1186,7 @@ const App = (function() {
           document.getElementById('call-pulse-ring').classList.add('hidden');
           clearInterval(callTimerInterval);
           activeConversation = null;
-          setTimeout(() => {
-            document.getElementById('call-overlay').classList.remove('active');
-          }, 1500);
+          setTimeout(() => document.getElementById('call-overlay').classList.remove('active'), 1500);
         },
         onError: (error) => {
           console.error('Call error:', error);
@@ -1062,9 +1211,7 @@ const App = (function() {
   function updateCallTimer() {
     if (!callStartTime) return;
     const secs = Math.floor((Date.now() - callStartTime) / 1000);
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    document.getElementById('call-timer').textContent = m + ':' + String(s).padStart(2, '0');
+    document.getElementById('call-timer').textContent = Math.floor(secs/60) + ':' + String(secs%60).padStart(2,'0');
   }
 
   async function endCall() {
@@ -1080,27 +1227,28 @@ const App = (function() {
   async function loadArchive() {
     const container = document.getElementById('archive-list');
     container.innerHTML = '<div class="flex justify-center py-8"><div class="w-6 h-6 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>';
-
     try {
       const res = await fetch('/api/archive');
       const data = await res.json();
       const results = data.results || [];
-
       if (!results.length) {
         container.innerHTML = '<div class="flex flex-col items-center justify-center py-12 text-slate-400"><span class="material-icons text-4xl mb-2 opacity-40">science</span><p class="text-sm">No research yet</p></div>';
         return;
       }
-
       container.innerHTML = results.map(r => {
         const date = r.completed_at ? new Date(r.completed_at).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
         const studies = r.num_studies ? r.num_studies + ' studies' : '';
         const docId = r.elevenlabs_doc_id || '';
+        const stats = r.research_stats || {};
+        const hh = stats.human_hours;
+        const hoursText = hh && hh.total_hours > 0 ? `~${hh.total_hours}h equiv` : '';
         return `<div class="glass-panel rounded-xl p-4 shadow-glass border border-white/60 space-y-2">
           <div class="cursor-pointer" onclick="window.open('${esc(r.result_url||'')}','_blank')">
             <h3 class="font-semibold text-sm text-slate-700 line-clamp-2">${esc(r.query||'Untitled')}</h3>
-            <div class="flex gap-3 text-[11px] text-slate-400 mt-1">
+            <div class="flex flex-wrap gap-2 text-[11px] text-slate-400 mt-1">
               <span class="bg-primary/10 text-primary px-2 py-0.5 rounded-md font-semibold">${esc(r.depth||'')}</span>
               ${studies ? '<span>'+studies+'</span>' : ''}
+              ${hoursText ? '<span class="text-rose-400">'+hoursText+'</span>' : ''}
               ${date ? '<span>'+date+'</span>' : ''}
             </div>
           </div>
@@ -1115,18 +1263,15 @@ const App = (function() {
     }
   }
 
-  /* ── Archive chat: show agent picker ── */
   function archiveChat(docId, docName) {
     lastDocId = docId;
     lastDocName = 'Research: ' + docName;
-    // Show result view with agent cards
     document.getElementById('result-query').textContent = docName;
     document.getElementById('result-link').style.display = 'none';
     renderResultAgents();
     showView('result');
   }
 
-  /* ── Copy report URL ── */
   function copyReportUrl() {
     const link = document.getElementById('result-link');
     const url = link ? link.href : '';
@@ -1136,14 +1281,8 @@ const App = (function() {
       const icon = btn.querySelector('.material-icons');
       icon.textContent = 'check';
       btn.classList.add('text-emerald-500', 'border-emerald-300');
-      setTimeout(() => {
-        icon.textContent = 'content_copy';
-        btn.classList.remove('text-emerald-500', 'border-emerald-300');
-      }, 2000);
-    }).catch(() => {
-      // Fallback for older browsers
-      prompt('Copy this URL:', url);
-    });
+      setTimeout(() => { icon.textContent = 'content_copy'; btn.classList.remove('text-emerald-500', 'border-emerald-300'); }, 2000);
+    }).catch(() => prompt('Copy this URL:', url));
   }
 
   /* ── Stats ── */
@@ -1154,8 +1293,6 @@ const App = (function() {
       document.getElementById('stat-researching').textContent = String(data.researching||0).padStart(2,'0');
       document.getElementById('stat-completed').textContent = data.completed || 0;
     } catch(e) { /* silent */ }
-
-    // Agent KB counts
     try {
       const res = await fetch('/api/agents');
       const data = await res.json();
@@ -1166,72 +1303,82 @@ const App = (function() {
     } catch(e) { /* silent */ }
   }
 
-  /* ── Retry ── */
-  function retry() {
-    queryInput.value = lastQuery;
-    showView('home');
-  }
-
-  /* ── Banner ── */
-  function updateBanner() {
-    const banner = document.getElementById('active-research-banner');
-    if (!banner) return;
-    if (currentJobId) {
-      document.getElementById('banner-query').textContent = lastQuery || 'Research in progress';
-      banner.classList.remove('hidden');
-    } else {
-      banner.classList.add('hidden');
-    }
-  }
+  function retry() { queryInput.value = lastQuery; showView('home'); }
 
   function resumeProgress() {
-    if (currentJobId) showView('progress');
+    if (viewingJobId && activeJobs[viewingJobId]) showView('progress');
   }
 
   /* ── Init ── */
   loadStats();
   setInterval(loadStats, 30000);
 
-  // Restore active job from localStorage (survives page refresh)
-  (async function restoreActiveJob() {
-    const saved = localStorage.getItem('activeJob');
-    if (!saved) return;
-    try {
-      const job = JSON.parse(saved);
-      if (!job.jobId) { localStorage.removeItem('activeJob'); return; }
-
-      // Check if the job is still running
-      const res = await fetch('/api/status/' + job.jobId);
-      if (!res.ok) { localStorage.removeItem('activeJob'); return; }
-      const data = await res.json();
-
-      if (data.status === 'running') {
-        // Restore state and show banner
-        currentJobId = job.jobId;
-        lastQuery = job.query || '';
-        selectedDepth = job.depth || 'STANDARD';
-        startTime = job.startTime || Date.now();
-        estimatedSeconds = job.estimatedSeconds || 300;
-
-        // Update progress view times
-        const start = new Date(startTime);
-        const eta = new Date(startTime + estimatedSeconds * 1000);
-        document.getElementById('progress-start').textContent = start.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',hour12:false});
-        document.getElementById('progress-eta').textContent = eta.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',hour12:false});
-
-        updateBanner();
-        startPolling();
-      } else {
-        // Job already finished, clean up
+  // Restore active jobs from localStorage
+  (async function restoreActiveJobs() {
+    const saved = localStorage.getItem('activeJobs');
+    if (!saved) {
+      // Migrate from old single-job format
+      const oldSaved = localStorage.getItem('activeJob');
+      if (oldSaved) {
+        try {
+          const old = JSON.parse(oldSaved);
+          if (old.jobId) {
+            const res = await fetch('/api/status/' + old.jobId);
+            if (res.ok) {
+              const data = await res.json();
+              if (data.status === 'running') {
+                activeJobs[old.jobId] = {
+                  query: old.query || '', depth: old.depth || 'STANDARD',
+                  startTime: old.startTime || Date.now(), estimatedSeconds: old.estimatedSeconds || 300,
+                  phase: data.phase || '', status: 'running', phaseTimings: data.phase_timings || {},
+                  researchStats: data.research_stats || {}, studyProgress: data.study_progress || [],
+                  currentStep: data.current_step || '',
+                };
+                viewingJobId = old.jobId;
+              }
+            }
+          }
+        } catch(e) {}
         localStorage.removeItem('activeJob');
       }
+      if (!hasActiveJobs()) return;
+      persistActiveJobs();
+      renderBanners();
+      ensurePolling();
+      return;
+    }
+
+    try {
+      const jobs = JSON.parse(saved);
+      for (const [jid, j] of Object.entries(jobs)) {
+        try {
+          const res = await fetch('/api/status/' + jid);
+          if (!res.ok) continue;
+          const data = await res.json();
+          if (data.status === 'running') {
+            activeJobs[jid] = {
+              query: j.query || '', depth: j.depth || 'STANDARD',
+              startTime: j.startTime || Date.now(), estimatedSeconds: j.estimatedSeconds || 300,
+              phase: data.phase || '', status: 'running', phaseTimings: data.phase_timings || {},
+              researchStats: data.research_stats || {}, studyProgress: data.study_progress || [],
+              currentStep: data.current_step || '',
+            };
+            if (!viewingJobId) viewingJobId = jid;
+          }
+        } catch(e) {}
+      }
+      persistActiveJobs(); // Clean up completed jobs
+      if (hasActiveJobs()) {
+        renderBanners();
+        ensurePolling();
+      }
     } catch(e) {
-      localStorage.removeItem('activeJob');
+      localStorage.removeItem('activeJobs');
     }
   })();
 
   /* ── Public API ── */
-  return { showView, retry, assignToAgent, startCall, endCall, archiveChat, copyReportUrl, useSuggested, forceStart, resumeProgress };
+  return { showView, retry, assignToAgent, startCall, endCall, archiveChat, copyReportUrl, useSuggested, forceStart, resumeProgress, viewJob };
 })();
 </script>
 </body>

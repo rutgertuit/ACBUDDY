@@ -328,6 +328,7 @@ def publish_results_with_metadata(
     bucket_name: str,
     elevenlabs_doc_id: str = "",
     phase_timings: dict | None = None,
+    research_stats: dict | None = None,
 ) -> str:
     """Generate HTML, upload it, then write a metadata JSON alongside it.
 
@@ -352,6 +353,7 @@ def publish_results_with_metadata(
         "synthesis_score": result.synthesis_score,
         "refinement_rounds": result.refinement_rounds,
         "phase_timings": phase_timings or {},
+        "research_stats": research_stats or {},
     }
     upload_metadata(metadata, job_id, bucket_name)
     return result_url

@@ -11,6 +11,7 @@ from app.services import elevenlabs_client, gcs_client
 from app.services.job_tracker import (
     JobStatus, get_job, update_job, record_phase_timing, finalize_timings,
 )
+from app.services.research_stats import init_stats, get_stats, compute_human_hours
 from app.agents.root_agent import execute_research
 
 logger = logging.getLogger(__name__)
@@ -91,13 +92,21 @@ def _handle_standard_upload(result, user_query, conversation_id, agent_id, setti
         logger.error("Failed to upload research to KB after retries")
         return
 
-    elevenlabs_client.attach_document_to_agent(
-        agent_id=agent_id,
-        doc_id=doc_id,
-        doc_name=doc_name,
-        api_key=settings.elevenlabs_api_key,
-    )
-    logger.info("Pipeline complete: doc=%s attached to agent=%s", doc_id, agent_id)
+    # Attach to ALL agents, not just the triggering one
+    for slug in AGENTS:
+        aid = get_agent_id(slug, settings)
+        if not aid:
+            continue
+        try:
+            elevenlabs_client.attach_document_to_agent(
+                agent_id=aid,
+                doc_id=doc_id,
+                doc_name=doc_name,
+                api_key=settings.elevenlabs_api_key,
+            )
+            logger.info("Attached doc %s to agent %s (%s)", doc_id, slug, aid)
+        except Exception:
+            logger.exception("Failed to attach doc to agent %s", slug)
 
     if settings.gcs_results_bucket:
         url = gcs_client.publish_results(
@@ -162,22 +171,26 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
         except Exception:
             logger.exception("Failed to upload Q&A summary")
 
-    # Batch attach all documents
+    # Batch attach all documents to ALL agents
     if all_docs:
-        try:
-            elevenlabs_client.attach_documents_to_agent(
-                agent_id=agent_id,
-                doc_map=all_docs,
-                api_key=api_key,
-            )
-        except Exception:
-            logger.exception("Failed to batch attach documents to agent")
+        for slug in AGENTS:
+            aid = get_agent_id(slug, settings)
+            if not aid:
+                continue
+            try:
+                elevenlabs_client.attach_documents_to_agent(
+                    agent_id=aid,
+                    doc_map=all_docs,
+                    api_key=api_key,
+                )
+                logger.info("Attached %d docs to agent %s (%s)", len(all_docs), slug, aid)
+            except Exception:
+                logger.exception("Failed to batch attach documents to agent %s", slug)
 
     result.all_doc_ids = list(all_docs.keys())
     logger.info(
-        "DEEP pipeline complete: %d documents uploaded and attached to agent %s",
+        "DEEP pipeline complete: %d documents uploaded and attached to all agents",
         len(all_docs),
-        agent_id,
     )
 
     if settings.gcs_results_bucket:
@@ -250,6 +263,7 @@ def run_research_for_ui(
 
     def _run():
         try:
+            init_stats(job_id=job_id)
             update_job(
                 job_id,
                 status=JobStatus.RUNNING,
@@ -336,6 +350,16 @@ def run_research_for_ui(
                 except Exception:
                     logger.exception("Failed to trigger RAG index for doc %s", elevenlabs_doc_id)
 
+            # Capture final research stats
+            final_stats = get_stats()
+            num_studies = len(result.studies) if result.studies else 0
+            num_qa = len([c for c in result.qa_clusters if c.findings]) if result.qa_clusters else 0
+            human_hours = compute_human_hours(
+                final_stats, num_studies=num_studies,
+                num_qa_clusters=num_qa, depth=depth.value,
+            )
+            update_job(job_id, research_stats={**final_stats, "human_hours": human_hours})
+
             # Finalize phase timings
             record_phase_timing(job_id, "upload")
             timings = finalize_timings(job_id)
@@ -352,6 +376,7 @@ def run_research_for_ui(
                     settings.gcs_results_bucket,
                     elevenlabs_doc_id=elevenlabs_doc_id,
                     phase_timings=timings,
+                    research_stats={**final_stats, "human_hours": human_hours},
                 )
 
             update_job(
