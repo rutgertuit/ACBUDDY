@@ -89,6 +89,7 @@ async def run_iterative_study(
                 error_str = str(e).lower()
                 is_retryable = any(kw in error_str for kw in [
                     "connect", "timeout", "read", "reset", "429", "503", "unavailable",
+                    "json serializable", "typeerror",  # ADK telemetry serialization
                 ])
                 if is_retryable and retry < ROUND_MAX_RETRIES:
                     wait = ROUND_RETRY_BACKOFF * (retry + 1)
@@ -147,6 +148,7 @@ async def run_iterative_study(
                 error_str = str(e).lower()
                 is_retryable = any(kw in error_str for kw in [
                     "connect", "timeout", "read", "reset", "429", "503", "unavailable",
+                    "json serializable", "typeerror",  # ADK telemetry serialization
                 ])
                 if is_retryable and retry < ROUND_MAX_RETRIES:
                     wait = ROUND_RETRY_BACKOFF * (retry + 1)
@@ -295,6 +297,7 @@ Write clearly, cite sources inline, be thorough."""
                 error_str = str(e).lower()
                 is_retryable = any(kw in error_str for kw in [
                     "connect", "timeout", "read", "reset", "429", "503", "unavailable",
+                    "json serializable", "typeerror",  # ADK telemetry serialization
                 ])
                 if is_retryable and retry < ROUND_MAX_RETRIES:
                     wait = ROUND_RETRY_BACKOFF * (retry + 1)

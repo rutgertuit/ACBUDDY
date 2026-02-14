@@ -56,11 +56,14 @@ def _web_search(query: str) -> str:
                 chunks = candidate.grounding_metadata.grounding_chunks or []
                 for chunk in chunks:
                     if chunk.web:
+                        # Ensure URI and title are str (proto fields can sometimes be bytes)
+                        uri = chunk.web.uri if isinstance(chunk.web.uri, str) else str(chunk.web.uri or "", "utf-8", errors="replace")
+                        title = chunk.web.title if isinstance(chunk.web.title, str) else str(chunk.web.title or "", "utf-8", errors="replace")
                         # Score source authority
                         from app.services.source_scorer import score_url, format_authority_tag
-                        url_score = score_url(chunk.web.uri)
+                        url_score = score_url(uri)
                         tag = format_authority_tag(url_score)
-                        result_parts.append(f"[Source: {chunk.web.title} - {chunk.web.uri}] {tag}")
+                        result_parts.append(f"[Source: {title} - {uri}] {tag}")
                         source_count += 1
             if source_count:
                 increment("pages_read", source_count)
@@ -100,6 +103,9 @@ def _pull_sources(urls: list[str]) -> str:
     from app.services.source_scorer import score_and_sort, format_authority_tag
     scored_urls = score_and_sort(urls[:5])
 
+    # Content types that indicate binary (non-text) responses
+    _BINARY_TYPES = {"application/pdf", "application/octet-stream", "image/", "audio/", "video/"}
+
     results = []
     fetched = 0
     for url, url_score in scored_urls:
@@ -107,10 +113,20 @@ def _pull_sources(urls: list[str]) -> str:
         try:
             resp = requests.get(url, timeout=15, headers={"User-Agent": "ACBUDDY-Research/1.0"})
             resp.raise_for_status()
+            # Skip binary responses (PDFs, images, etc.) — they cause ADK serialization errors
+            ctype = (resp.headers.get("content-type", "") or "").lower().split(";")[0].strip()
+            if any(ctype.startswith(bt) for bt in _BINARY_TYPES):
+                logger.info("Skipping binary content (%s) from %s", ctype, url)
+                results.append(f"[Source: {url}] {tag} (binary content, skipped)\n")
+                continue
+            # Force UTF-8 decoding to avoid encoding issues
+            resp.encoding = resp.apparent_encoding or "utf-8"
             # Strip HTML tags
             text = re.sub(r"<[^>]+>", " ", resp.text)
             # Collapse whitespace
             text = re.sub(r"\s+", " ", text).strip()
+            # Remove null bytes and other control characters that break proto serialization
+            text = text.replace("\x00", "")
             # Truncate to 5K chars per source
             results.append(f"[Source: {url}] {tag}\n{text[:5000]}\n")
             fetched += 1
