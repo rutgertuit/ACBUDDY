@@ -164,11 +164,11 @@ tailwind.config = {
         </div>
       </div>
 
-      <!-- Faux status bar -->
+      <!-- Agent KB status bar -->
       <div class="flex justify-between w-full px-6 text-[10px] text-slate-400 font-mono opacity-60">
-        <span>CPU: 12%</span>
-        <span>MEM: 4.2GB</span>
-        <span>NET: 1GBPS</span>
+        <span>MAYA: <span id="kb-maya" class="text-primary/80">--</span></span>
+        <span>BARN: <span id="kb-barnaby" class="text-amber-400/80">--</span></span>
+        <span>CONS: <span id="kb-consultant" class="text-violet-400/80">--</span></span>
       </div>
     </div>
   </div>
@@ -662,6 +662,16 @@ const App = (function() {
       const data = await res.json();
       document.getElementById('stat-researching').textContent = String(data.researching||0).padStart(2,'0');
       document.getElementById('stat-completed').textContent = data.completed || 0;
+    } catch(e) { /* silent */ }
+
+    // Agent KB counts
+    try {
+      const res = await fetch('/api/agents');
+      const data = await res.json();
+      for (const a of (data.agents || [])) {
+        const el = document.getElementById('kb-' + a.slug);
+        if (el) el.textContent = String(a.kb_count).padStart(2, '0');
+      }
     } catch(e) { /* silent */ }
   }
 
