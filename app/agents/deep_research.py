@@ -6,6 +6,8 @@ import time
 import requests
 from google.adk.agents import LlmAgent
 
+from app.services import news_client, grok_client, openai_client
+
 logger = logging.getLogger(__name__)
 
 MAX_SEARCH_RETRIES = 3
@@ -100,13 +102,106 @@ def _pull_sources(urls: list[str]) -> str:
     return "\n---\n".join(results)
 
 
-RESEARCHER_INSTRUCTION = """You are a thorough research agent. Your task is to research the following question
-using web search and source fetching.
+def _search_news(query: str) -> str:
+    """Search recent news articles for current events, market developments, and media coverage.
 
-Steps:
-1. Use web_search to find relevant results for the question
-2. Use pull_sources to fetch and read the most relevant URLs from search results
-3. Synthesize your findings into a clear, detailed summary with citations
+    Use this tool when the research question involves:
+    - Recent developments or breaking news
+    - Market trends and business news
+    - Company announcements or product launches
+    - Industry events and regulatory changes
+
+    Args:
+        query: The news search query string.
+
+    Returns:
+        Formatted news results with titles, descriptions, sources, and URLs.
+    """
+    api_key = os.getenv("NEWSAPI_KEY", "")
+    if not api_key:
+        return "News search unavailable (no API key configured)"
+
+    articles = news_client.search_news(query=query, api_key=api_key)
+    if not articles:
+        return f"No recent news found for: {query}"
+
+    parts = []
+    for art in articles:
+        parts.append(
+            f"**{art['title']}** ({art['source']}, {art['published_at'][:10]})\n"
+            f"{art['description']}\n"
+            f"URL: {art['url']}"
+        )
+    return "\n\n---\n\n".join(parts)
+
+
+def _search_grok(query: str) -> str:
+    """Search using Grok for real-time web and social media insights.
+
+    Use this tool when the research question involves:
+    - Trending topics or viral discussions
+    - Social media sentiment and public opinion
+    - Real-time market reactions or events
+    - X/Twitter discussions and influencer perspectives
+
+    Args:
+        query: The search query for real-time web and social data.
+
+    Returns:
+        Synthesized findings from Grok including social and web data.
+    """
+    api_key = os.getenv("GROK_API_KEY", "")
+    if not api_key:
+        return "Grok search unavailable (no API key configured)"
+
+    result = grok_client.search_with_grok(query=query, api_key=api_key)
+    return result or f"No results from Grok for: {query}"
+
+
+def _deep_reason(question: str, context: str) -> str:
+    """Use OpenAI for deep analytical reasoning over complex questions.
+
+    Use this tool when the research question requires:
+    - Complex causal analysis or second-order effects
+    - Synthesis across multiple conflicting data points
+    - Strategic implications or scenario analysis
+    - Questions that need careful logical reasoning rather than more data
+
+    Args:
+        question: The analytical question to reason about.
+        context: Research context or findings gathered so far to reason over.
+
+    Returns:
+        Deep analytical reasoning and insights.
+    """
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        return "Deep reasoning unavailable (no API key configured)"
+
+    result = openai_client.deep_reason(
+        question=question, context=context, api_key=api_key
+    )
+    return result or f"No reasoning output for: {question}"
+
+
+RESEARCHER_INSTRUCTION = """You are a thorough research agent with access to multiple search sources.
+Your task is to research the following question using the best combination of tools.
+
+Available tools and when to use them:
+1. **web_search** — Default for all queries. Uses Gemini search grounding for broad web results.
+2. **search_news** — For current events, recent developments, company/market news, regulatory changes.
+3. **search_grok** — For trending topics, social sentiment, X/Twitter discussions, real-time reactions.
+4. **deep_reason** — For complex analytical questions. Pass your gathered findings as context and
+   ask it to reason about implications, causal chains, or strategic scenarios.
+5. **pull_sources** — Fetch and read full content from specific URLs found in search results.
+
+Research strategy:
+1. Start with web_search for foundational information.
+2. If the question involves recent events or market developments, ALSO use search_news.
+3. If the question involves public opinion, trends, or social dynamics, ALSO use search_grok.
+4. If you have gathered enough data but need deeper analysis, use deep_reason with your findings as context.
+5. Use pull_sources to read full content from the most relevant URLs.
+6. Synthesize ALL findings into a clear, detailed summary with citations.
 
 Rules:
 - Include specific facts, data points, and source URLs in your response.
@@ -115,6 +210,7 @@ Rules:
 - Stay strictly within the geographic, temporal, and topical scope of the question. If the
   question is about a specific country or region, only include data and examples from that
   geography. Do not pad findings with data from other regions.
+- Use at least 2 different search tools when the topic warrants it.
 - Be thorough but concise. Focus on accuracy and relevance.
 """
 
@@ -130,10 +226,19 @@ def build_researcher(index: int, model: str = "gemini-2.0-flash", prefix: str = 
     Returns:
         Configured LlmAgent for deep research.
     """
+    # Include multi-source tools only when API keys are configured
+    tools = [_web_search, _pull_sources]
+    if os.getenv("NEWSAPI_KEY", ""):
+        tools.append(_search_news)
+    if os.getenv("GROK_API_KEY", ""):
+        tools.append(_search_grok)
+    if os.getenv("OPENAI_API_KEY", ""):
+        tools.append(_deep_reason)
+
     return LlmAgent(
         name=f"researcher_{index}",
         model=model,
         instruction=RESEARCHER_INSTRUCTION,
-        tools=[_web_search, _pull_sources],
+        tools=tools,
         output_key=f"{prefix}_{index}",
     )
