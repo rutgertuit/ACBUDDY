@@ -287,10 +287,17 @@ tailwind.config = {
       <span class="material-icons text-6xl text-emerald-400">check_circle</span>
       <div class="text-lg font-semibold text-slate-700">Research Complete</div>
       <div id="result-query" class="text-sm text-slate-400 text-center"></div>
-      <a id="result-link" href="#" target="_blank" rel="noopener"
-         class="w-full py-3 rounded-xl bg-primary text-white text-center font-semibold text-sm tracking-wide hover:opacity-85 transition-opacity block">
-        View Full Report
-      </a>
+      <div class="w-full flex gap-2">
+        <a id="result-link" href="#" target="_blank" rel="noopener"
+           class="flex-1 py-3 rounded-xl bg-primary text-white text-center font-semibold text-sm tracking-wide hover:opacity-85 transition-opacity block">
+          View Full Report
+        </a>
+        <button id="copy-url-btn" onclick="App.copyReportUrl()"
+                class="px-4 py-3 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-primary transition-colors flex items-center gap-1.5"
+                title="Copy report URL (e.g. for NotebookLM)">
+          <span class="material-icons text-lg">content_copy</span>
+        </button>
+      </div>
 
       <!-- Agent cards for assigning KB -->
       <div class="w-full mt-4 space-y-2">
@@ -941,7 +948,10 @@ const App = (function() {
               ${date ? '<span>'+date+'</span>' : ''}
             </div>
           </div>
-          ${docId ? `<button onclick="App.archiveChat('${esc(docId)}','${esc((r.query||'').substring(0,60))}')" class="text-[11px] text-primary font-medium flex items-center gap-1 hover:underline"><span class="material-icons text-sm">chat</span>Chat about this</button>` : ''}
+          <div class="flex items-center gap-3">
+            ${docId ? `<button onclick="App.archiveChat('${esc(docId)}','${esc((r.query||'').substring(0,60))}')" class="text-[11px] text-primary font-medium flex items-center gap-1 hover:underline"><span class="material-icons text-sm">chat</span>Chat about this</button>` : ''}
+            ${r.result_url ? `<button onclick="navigator.clipboard.writeText('${esc(r.result_url)}');this.querySelector('.material-icons').textContent='check';setTimeout(()=>this.querySelector('.material-icons').textContent='content_copy',1500)" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-primary transition-colors"><span class="material-icons text-sm">content_copy</span>Copy URL</button>` : ''}
+          </div>
         </div>`;
       }).join('');
     } catch(e) {
@@ -958,6 +968,26 @@ const App = (function() {
     document.getElementById('result-link').style.display = 'none';
     renderResultAgents();
     showView('result');
+  }
+
+  /* ── Copy report URL ── */
+  function copyReportUrl() {
+    const link = document.getElementById('result-link');
+    const url = link ? link.href : '';
+    if (!url || url === '#' || url.endsWith('#')) return;
+    navigator.clipboard.writeText(url).then(() => {
+      const btn = document.getElementById('copy-url-btn');
+      const icon = btn.querySelector('.material-icons');
+      icon.textContent = 'check';
+      btn.classList.add('text-emerald-500', 'border-emerald-300');
+      setTimeout(() => {
+        icon.textContent = 'content_copy';
+        btn.classList.remove('text-emerald-500', 'border-emerald-300');
+      }, 2000);
+    }).catch(() => {
+      // Fallback for older browsers
+      prompt('Copy this URL:', url);
+    });
   }
 
   /* ── Stats ── */
@@ -1045,7 +1075,7 @@ const App = (function() {
   })();
 
   /* ── Public API ── */
-  return { showView, retry, assignToAgent, startCall, endCall, archiveChat, useSuggested, forceStart, resumeProgress };
+  return { showView, retry, assignToAgent, startCall, endCall, archiveChat, copyReportUrl, useSuggested, forceStart, resumeProgress };
 })();
 </script>
 </body>
