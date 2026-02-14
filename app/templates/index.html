@@ -689,7 +689,18 @@ const App = (function() {
     if (!currentJobId) return;
     try {
       const res = await fetch('/api/status/' + currentJobId);
-      if (!res.ok) return;
+      if (!res.ok) {
+        // Job not found (e.g. after redeployment) — clean up stale state
+        if (res.status === 404) {
+          stopPolling();
+          localStorage.removeItem('activeJob');
+          currentJobId = null;
+          updateBanner();
+          document.getElementById('error-msg').textContent = 'Research session was lost (server restarted). Please start a new one.';
+          showView('error');
+        }
+        return;
+      }
       const data = await res.json();
 
       const phase = data.phase || 'Working...';
