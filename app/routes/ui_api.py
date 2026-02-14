@@ -109,28 +109,31 @@ def stats():
 
 @ui_api_bp.route("/api/agents")
 def list_agents():
-    """List the 3 agents with their KB doc counts (cached)."""
+    """List the 3 agents with their KB doc names (cached)."""
     settings = current_app.config["SETTINGS"]
 
     agents_out = []
     for slug, profile in AGENTS.items():
         agent_id = get_agent_id(slug, settings)
-        kb_count = 0
+        kb_docs = []
 
         if agent_id:
-            cache_key = f"kb_count_{slug}"
+            cache_key = f"kb_docs_{slug}"
             cached = _cached(cache_key)
             if cached is not None:
-                kb_count = cached
+                kb_docs = cached
             else:
                 try:
                     kb = elevenlabs_client.list_agent_knowledge_base(
                         agent_id, settings.elevenlabs_api_key
                     )
-                    kb_count = len(kb)
+                    kb_docs = [
+                        {"id": d.get("id", d.get("document_id", "")), "name": d.get("name", "")}
+                        for d in kb
+                    ]
                 except Exception:
                     logger.exception("Failed to fetch KB for agent %s", slug)
-                _set_cache(cache_key, kb_count)
+                _set_cache(cache_key, kb_docs)
 
         agents_out.append({
             "slug": profile.slug,
@@ -140,7 +143,8 @@ def list_agents():
             "icon": profile.icon,
             "color": profile.color,
             "agent_id": agent_id,
-            "kb_count": kb_count,
+            "kb_count": len(kb_docs),
+            "kb_docs": kb_docs,
         })
 
     return jsonify({"agents": agents_out})

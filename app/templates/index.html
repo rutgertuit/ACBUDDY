@@ -46,21 +46,31 @@ tailwind.config = {
   @keyframes spin { to{transform:rotate(360deg)} }
   @keyframes pulse-bar { 0%,100%{transform:scaleY(0.5)} 50%{transform:scaleY(1)} }
 
-  /* Agent card colors */
-  .agent-cyan { --ac: #0dccf2; --ac-bg: rgba(13,204,242,0.08); --ac-border: rgba(13,204,242,0.25); }
-  .agent-amber { --ac: #f59e0b; --ac-bg: rgba(245,158,11,0.08); --ac-border: rgba(245,158,11,0.25); }
-  .agent-violet { --ac: #8b5cf6; --ac-bg: rgba(139,92,246,0.08); --ac-border: rgba(139,92,246,0.25); }
+  /* Agent card — neumorphic glass style */
+  .agent-cyan { --ac: #0dccf2; }
+  .agent-amber { --ac: #f59e0b; }
+  .agent-violet { --ac: #8b5cf6; }
   .agent-card {
-    background: var(--ac-bg);
-    border: 1px solid var(--ac-border);
-    border-radius: 1rem;
-    padding: 1rem 1.25rem;
+    background: rgba(255,255,255,0.5);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.7);
+    border-radius: 1.25rem;
+    padding: 1.25rem;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.25s;
+    box-shadow: 6px 6px 16px #d1d9d9, -6px -6px 16px #ffffff;
   }
-  .agent-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+  .agent-card:hover { transform: translateY(-3px); box-shadow: 8px 8px 20px #c8d0d0, -8px -8px 20px #ffffff; }
+  .agent-card:active { transform: scale(0.98); }
   .agent-card .agent-icon { color: var(--ac); }
   .agent-card .agent-accent { color: var(--ac); }
+  .agent-card .agent-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ac); box-shadow: 0 0 8px var(--ac); }
+  .agent-card .kb-tag {
+    display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 6px;
+    background: rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.05);
+    color: #64748b; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
 
   /* Widget overlay */
   .widget-overlay {
@@ -447,6 +457,40 @@ const App = (function() {
     } catch(e) { /* keep polling */ }
   }
 
+  /* ── Shared agent card renderer ── */
+  function renderAgentCard(a, mode) {
+    // mode: 'attach' (result view) or 'chat' (chat view)
+    const onclick = mode === 'attach'
+      ? `App.attachAndChat('${esc(a.slug)}','${esc(a.agent_id)}','${esc(a.name)}')`
+      : `App.openWidget('${esc(a.agent_id)}','${esc(a.name)}')`;
+    const actionIcon = mode === 'attach' ? 'arrow_forward' : 'chat';
+    const docs = a.kb_docs || [];
+    const kbHtml = docs.length
+      ? docs.slice(0, 3).map(d => {
+          // Strip "Research: " prefix for brevity
+          const label = (d.name || d.id || '').replace(/^Research:\s*/i, '').substring(0, 50);
+          return `<span class="kb-tag">${esc(label)}</span>`;
+        }).join('') + (docs.length > 3 ? `<span class="kb-tag">+${docs.length - 3} more</span>` : '')
+      : '<span class="text-[10px] text-slate-300 italic">No research loaded</span>';
+
+    return `<div class="agent-card agent-${esc(a.color)}" onclick="${onclick}">
+      <div class="flex items-center gap-3 mb-2">
+        <div class="w-10 h-10 rounded-full bg-white/80 shadow-inner-chrome flex items-center justify-center flex-shrink-0">
+          <span class="material-icons agent-icon text-xl">${esc(a.icon)}</span>
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="font-semibold text-slate-700 text-sm">${esc(a.name)}</span>
+            <span class="agent-dot"></span>
+          </div>
+          <div class="text-[11px] text-slate-400">${esc(a.subtitle)}</div>
+        </div>
+        <span class="material-icons text-slate-300 text-lg">${actionIcon}</span>
+      </div>
+      <div class="flex flex-wrap gap-1 ml-[52px]">${kbHtml}</div>
+    </div>`;
+  }
+
   /* ── Result: agent cards ── */
   async function renderResultAgents() {
     const container = document.getElementById('result-agents');
@@ -458,18 +502,7 @@ const App = (function() {
       const res = await fetch('/api/agents');
       const data = await res.json();
       agentsData = data.agents || [];
-      container.innerHTML = agentsData.map(a => `
-        <div class="agent-card agent-${esc(a.color)}" onclick="App.attachAndChat('${esc(a.slug)}','${esc(a.agent_id)}','${esc(a.name)}')">
-          <div class="flex items-center gap-3">
-            <span class="material-icons agent-icon text-2xl">${esc(a.icon)}</span>
-            <div class="flex-1 min-w-0">
-              <div class="font-semibold text-slate-700 text-sm">${esc(a.name)}</div>
-              <div class="text-[11px] text-slate-400 truncate">${esc(a.subtitle)}</div>
-            </div>
-            <span class="material-icons text-slate-300 text-lg">arrow_forward</span>
-          </div>
-        </div>
-      `).join('');
+      container.innerHTML = agentsData.map(a => renderAgentCard(a, 'attach')).join('');
     } catch(e) {
       container.innerHTML = '<p class="text-xs text-red-400 text-center">Failed to load agents</p>';
     }
@@ -500,21 +533,7 @@ const App = (function() {
       const data = await res.json();
       agentsData = data.agents || [];
 
-      container.innerHTML = agentsData.map(a => `
-        <div class="agent-card agent-${esc(a.color)}" onclick="App.openWidget('${esc(a.agent_id)}','${esc(a.name)}')">
-          <div class="flex items-center gap-3">
-            <span class="material-icons agent-icon text-3xl">${esc(a.icon)}</span>
-            <div class="flex-1 min-w-0">
-              <div class="font-semibold text-slate-700">${esc(a.name)}</div>
-              <div class="text-[11px] text-slate-400">${esc(a.subtitle)}</div>
-              <div class="text-[10px] text-slate-400 mt-1">
-                <span class="agent-accent font-semibold">${a.kb_count}</span> KB docs
-              </div>
-            </div>
-            <span class="material-icons text-slate-300 text-xl">chat</span>
-          </div>
-        </div>
-      `).join('');
+      container.innerHTML = agentsData.map(a => renderAgentCard(a, 'chat')).join('');
     } catch(e) {
       container.innerHTML = '<p class="text-sm text-red-400 text-center py-8">Failed to load agents</p>';
     }
