@@ -380,10 +380,27 @@ tailwind.config = {
         </button>
       </div>
 
-      <!-- Agent cards for assigning KB -->
+      <!-- Agent chat cards (primary action) -->
       <div class="w-full mt-4 space-y-2">
-        <p class="text-[10px] uppercase tracking-widest text-slate-400 text-center mb-2">Assign research to agent</p>
+        <p class="text-[10px] uppercase tracking-widest text-slate-400 text-center mb-2">Chat about this research</p>
         <div id="result-agents" class="space-y-2"></div>
+      </div>
+
+      <!-- Reassign panel (hidden behind more_horiz) -->
+      <div class="w-full mt-2">
+        <button onclick="App.toggleReassign()"
+                class="flex items-center gap-1 mx-auto text-[11px] text-slate-400 hover:text-primary transition-colors">
+          <span class="material-icons text-sm">more_horiz</span>
+          <span id="reassign-toggle-label">Reassign to specific agent</span>
+        </button>
+        <div id="reassign-panel" class="hidden mt-2 space-y-2">
+          <div id="reassign-agents" class="space-y-2"></div>
+          <div id="reassign-countdown" class="hidden text-center py-2">
+            <div class="text-[11px] text-slate-400">RAG indexing in progress</div>
+            <div id="reassign-timer" class="text-sm font-mono text-primary font-semibold">5:00</div>
+            <div class="text-[10px] text-slate-400 mt-1">Chat will be available after indexing completes</div>
+          </div>
+        </div>
       </div>
 
       <button onclick="App.showView('home')"
@@ -419,6 +436,95 @@ tailwind.config = {
     <div id="chat-agents" class="mt-6 space-y-3"></div>
   </div>
 
+  <!-- ════════════ GRAPH VIEW ════════════ -->
+  <div id="view-graph" class="view flex-1" style="overflow-y:auto">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+      <p class="text-xs text-primary">Knowledge Graph</p>
+    </header>
+    <div id="graph-content" class="mt-4 px-2 pb-4">
+      <div id="graph-stats" class="glass-panel rounded-xl p-4 shadow-glass border border-white/60 mb-3">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="material-icons text-primary text-lg">hub</span>
+          <span class="text-sm font-semibold text-slate-700">Graph Overview</span>
+        </div>
+        <div class="flex gap-4 text-center">
+          <div><span id="graph-entities-count" class="text-lg font-bold text-primary">0</span><div class="text-[10px] text-slate-400">Entities</div></div>
+          <div><span id="graph-rels-count" class="text-lg font-bold text-amber-500">0</span><div class="text-[10px] text-slate-400">Relations</div></div>
+        </div>
+      </div>
+      <div class="mb-2">
+        <input id="graph-search" type="text" placeholder="Search entities..."
+               class="w-full px-3 py-2 rounded-lg bg-white/60 border border-slate-200 text-sm text-slate-700 placeholder-slate-400 focus:ring-1 focus:ring-primary"
+               oninput="App.filterGraph(this.value)">
+      </div>
+      <div id="graph-entities-list" class="space-y-1.5"></div>
+    </div>
+  </div>
+
+  <!-- ════════════ AMEND VIEW ════════════ -->
+  <div id="view-amend" class="view flex-1">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+      <p class="text-xs text-amber-500">Amend Research</p>
+    </header>
+    <div class="flex-1 flex flex-col gap-4 px-2 mt-4">
+      <div class="glass-panel rounded-xl p-4 shadow-glass border border-white/60">
+        <div class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">Original Query</div>
+        <div id="amend-original-query" class="text-sm text-slate-700 font-medium"></div>
+      </div>
+      <div>
+        <label class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold block mb-1">Additional Questions</label>
+        <textarea id="amend-questions" rows="4"
+                  class="w-full px-4 py-3 rounded-xl bg-white/60 border border-slate-200 text-sm text-slate-700 placeholder-slate-400 focus:ring-1 focus:ring-primary focus:border-primary"
+                  placeholder="One question per line..."></textarea>
+      </div>
+      <div>
+        <label class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold block mb-1">New Perspective (optional)</label>
+        <textarea id="amend-perspective" rows="2"
+                  class="w-full px-4 py-3 rounded-xl bg-white/60 border border-slate-200 text-sm text-slate-700 placeholder-slate-400 focus:ring-1 focus:ring-primary focus:border-primary"
+                  placeholder="e.g., Focus on environmental impact..."></textarea>
+      </div>
+      <button id="amend-submit-btn" onclick="App.submitAmendment()"
+              class="w-full py-3 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 text-white text-center font-semibold text-sm hover:opacity-90 transition-opacity">
+        Run Amendment
+      </button>
+      <button onclick="App.showView('archive')"
+              class="w-full py-3 rounded-xl border border-slate-200 text-slate-500 text-center font-medium text-sm hover:bg-slate-50 transition-colors">
+        Back to Archive
+      </button>
+    </div>
+  </div>
+
+  <!-- ════════════ WATCHES VIEW ════════════ -->
+  <div id="view-watches" class="view flex-1" style="overflow-y:auto">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+      <p class="text-xs text-primary">Research Watches</p>
+    </header>
+    <div class="mt-4 px-2 pb-4">
+      <!-- Create watch form -->
+      <div class="glass-panel rounded-xl p-4 shadow-glass border border-white/60 mb-3">
+        <div class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">New Watch</div>
+        <input id="watch-query" type="text" placeholder="Topic to monitor..."
+               class="w-full px-3 py-2 rounded-lg bg-white/60 border border-slate-200 text-sm text-slate-700 placeholder-slate-400 focus:ring-1 focus:ring-primary mb-2">
+        <div class="flex gap-2">
+          <select id="watch-interval" class="flex-1 px-3 py-2 rounded-lg bg-white/60 border border-slate-200 text-sm text-slate-700">
+            <option value="6">Every 6 hours</option>
+            <option value="12">Every 12 hours</option>
+            <option value="24" selected>Daily</option>
+            <option value="168">Weekly</option>
+          </select>
+          <button onclick="App.createWatch()"
+                  class="px-4 py-2 rounded-lg bg-gradient-to-r from-primary to-cyan-400 text-white text-sm font-semibold hover:opacity-90 transition-opacity">
+            Create
+          </button>
+        </div>
+      </div>
+      <div id="watches-list" class="space-y-2"></div>
+    </div>
+  </div>
+
   <!-- ════════════ ARCHIVE VIEW ════════════ -->
   <div id="view-archive" class="view flex-1">
     <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
@@ -433,9 +539,12 @@ tailwind.config = {
 
 <!-- ════════════ BOTTOM NAV ════════════ -->
 <nav id="bottom-nav" class="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
-  <div class="glass-panel px-6 py-3 rounded-full flex items-center justify-between w-[280px] shadow-glass relative">
+  <div class="glass-panel px-4 py-3 rounded-full flex items-center justify-between w-[340px] shadow-glass relative">
     <button class="nav-btn p-2 rounded-full hover:bg-slate-100 transition-colors group" data-view="archive">
       <span class="material-icons text-slate-400 group-hover:text-primary transition-colors text-xl">inventory_2</span>
+    </button>
+    <button class="nav-btn p-2 rounded-full hover:bg-slate-100 transition-colors group" data-view="graph">
+      <span class="material-icons text-slate-400 group-hover:text-primary transition-colors text-xl">hub</span>
     </button>
     <!-- Center raised chat button -->
     <button class="nav-btn relative -top-6 p-4 rounded-full bg-gradient-to-b from-white to-slate-100 shadow-lg border border-slate-100 group hover:-translate-y-1 transition-transform duration-300" data-view="chat">
@@ -448,6 +557,9 @@ tailwind.config = {
           <div class="w-[3px] bg-primary rounded-full" style="height:90%;animation:pulse-bar 1.1s ease-in-out infinite 0.3s"></div>
         </div>
       </div>
+    </button>
+    <button class="nav-btn p-2 rounded-full hover:bg-slate-100 transition-colors group" data-view="watches">
+      <span class="material-icons text-slate-400 group-hover:text-primary transition-colors text-xl">visibility</span>
     </button>
     <button class="nav-btn p-2 rounded-full hover:bg-slate-100 transition-colors group" data-view="home">
       <span class="material-icons text-slate-400 group-hover:text-primary transition-colors text-xl">home</span>
@@ -553,6 +665,8 @@ const App = (function() {
 
     if (name === 'archive') loadArchive();
     if (name === 'chat') loadChatAgents();
+    if (name === 'graph') loadGraph();
+    if (name === 'watches') loadWatches();
     if (name === 'home') { loadStats(); renderBanners(); }
   }
 
@@ -1071,20 +1185,34 @@ const App = (function() {
     </div>`;
   }
 
-  /* ── Result: agent cards ── */
+  /* ── Result: agent cards (chat mode primary) ── */
   async function renderResultAgents() {
     const container = document.getElementById('result-agents');
-    if (!lastDocId) {
-      container.innerHTML = '<p class="text-xs text-slate-400 text-center">No KB document available for chat</p>';
-      return;
-    }
+    const reassignContainer = document.getElementById('reassign-agents');
     try {
       const res = await fetch('/api/agents');
       const data = await res.json();
       agentsData = data.agents || [];
-      container.innerHTML = agentsData.map(a => renderAgentCard(a, 'attach')).join('');
+      // Primary: chat cards
+      container.innerHTML = agentsData.map(a => renderAgentCard(a, 'chat')).join('');
+      // Secondary: attach cards in reassign panel
+      if (reassignContainer && lastDocId) {
+        reassignContainer.innerHTML = agentsData.map(a => renderAgentCard(a, 'attach')).join('');
+      }
     } catch(e) {
       container.innerHTML = '<p class="text-xs text-red-400 text-center">Failed to load agents</p>';
+    }
+  }
+
+  function toggleReassign() {
+    const panel = document.getElementById('reassign-panel');
+    const label = document.getElementById('reassign-toggle-label');
+    if (panel.classList.contains('hidden')) {
+      panel.classList.remove('hidden');
+      label.textContent = 'Hide reassign';
+    } else {
+      panel.classList.add('hidden');
+      label.textContent = 'Reassign to specific agent';
     }
   }
 
@@ -1115,11 +1243,9 @@ const App = (function() {
       if (res.ok) {
         actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-emerald-600 font-semibold">
           <span class="material-icons text-sm">check_circle</span> Assigned to ${esc(agentName)}!
-        </div>
-        <button onclick="App.startCall('${esc(agentId)}','${esc(agentName)}')"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-primary to-cyan-400 hover:opacity-90 transition-opacity mt-2">
-          <span class="material-icons text-sm">chat</span> Chat with ${esc(agentName)}
-        </button>`;
+        </div>`;
+        // Start 5-min RAG countdown
+        startReassignCountdown(agentId, agentName);
       } else {
         actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-red-500"><span class="material-icons text-sm">error</span> ${esc(data.error||'Failed')}</div>
         <button onclick="App.assignToAgent('${esc(slug)}','${esc(agentId)}','${esc(agentName)}')" class="text-[11px] text-slate-500 underline mt-1">Retry</button>`;
@@ -1128,6 +1254,57 @@ const App = (function() {
       actionsEl.innerHTML = `<div class="flex items-center gap-2 text-[11px] text-red-500"><span class="material-icons text-sm">error</span> Connection failed</div>
       <button onclick="App.assignToAgent('${esc(slug)}','${esc(agentId)}','${esc(agentName)}')" class="text-[11px] text-slate-500 underline mt-1">Retry</button>`;
     }
+  }
+
+  /* ── Reassign RAG countdown ── */
+  let reassignTimer = null;
+
+  function startReassignCountdown(agentId, agentName) {
+    const endTime = Date.now() + 5 * 60 * 1000; // 5 minutes
+    localStorage.setItem('reassignCountdown', JSON.stringify({ endTime, agentId, agentName }));
+    const countdownEl = document.getElementById('reassign-countdown');
+    const timerEl = document.getElementById('reassign-timer');
+    if (countdownEl) countdownEl.classList.remove('hidden');
+
+    // Disable chat cards during countdown
+    document.querySelectorAll('#result-agents .agent-card').forEach(c => {
+      c.style.opacity = '0.5';
+      c.style.pointerEvents = 'none';
+    });
+
+    clearInterval(reassignTimer);
+    reassignTimer = setInterval(() => {
+      const remaining = Math.max(0, endTime - Date.now());
+      if (remaining <= 0) {
+        clearInterval(reassignTimer);
+        reassignTimer = null;
+        localStorage.removeItem('reassignCountdown');
+        if (countdownEl) countdownEl.classList.add('hidden');
+        // Re-enable chat cards
+        document.querySelectorAll('#result-agents .agent-card').forEach(c => {
+          c.style.opacity = '1';
+          c.style.pointerEvents = 'auto';
+        });
+        return;
+      }
+      const m = Math.floor(remaining / 60000);
+      const s = Math.floor((remaining % 60000) / 1000);
+      if (timerEl) timerEl.textContent = m + ':' + String(s).padStart(2, '0');
+    }, 1000);
+  }
+
+  // Restore countdown on page load
+  function restoreReassignCountdown() {
+    const saved = localStorage.getItem('reassignCountdown');
+    if (!saved) return;
+    try {
+      const { endTime, agentId, agentName } = JSON.parse(saved);
+      if (endTime > Date.now()) {
+        startReassignCountdown(agentId, agentName);
+      } else {
+        localStorage.removeItem('reassignCountdown');
+      }
+    } catch(e) { localStorage.removeItem('reassignCountdown'); }
   }
 
   /* ── Chat view ── */
@@ -1255,11 +1432,83 @@ const App = (function() {
           <div class="flex items-center gap-3">
             ${docId ? `<button onclick="App.archiveChat('${esc(docId)}','${esc((r.query||'').substring(0,60))}')" class="text-[11px] text-primary font-medium flex items-center gap-1 hover:underline"><span class="material-icons text-sm">chat</span>Chat about this</button>` : ''}
             ${r.result_url ? `<button onclick="navigator.clipboard.writeText('${esc(r.result_url)}');this.querySelector('.material-icons').textContent='check';setTimeout(()=>this.querySelector('.material-icons').textContent='content_copy',1500)" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-primary transition-colors"><span class="material-icons text-sm">content_copy</span>Copy URL</button>` : ''}
+            <button onclick="App.amendResearch('${esc(r.job_id)}','${esc((r.query||'').substring(0,120))}')" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-amber-500 transition-colors"><span class="material-icons text-sm">edit</span>Amend</button>
+            <button onclick="App.deleteResearch('${esc(r.job_id)}')" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-red-500 transition-colors ml-auto"><span class="material-icons text-sm">delete_forever</span></button>
           </div>
         </div>`;
       }).join('');
     } catch(e) {
       container.innerHTML = '<div class="flex flex-col items-center justify-center py-12 text-slate-400"><span class="material-icons text-4xl mb-2 opacity-40">cloud_off</span><p class="text-sm">Failed to load archive</p></div>';
+    }
+  }
+
+  let amendJobId = '';
+
+  function amendResearch(jobId, query) {
+    amendJobId = jobId;
+    document.getElementById('amend-original-query').textContent = query;
+    document.getElementById('amend-questions').value = '';
+    document.getElementById('amend-perspective').value = '';
+    showView('amend');
+  }
+
+  async function submitAmendment() {
+    const questions = document.getElementById('amend-questions').value.trim();
+    const perspective = document.getElementById('amend-perspective').value.trim();
+    if (!questions) { alert('Please enter at least one question.'); return; }
+
+    const btn = document.getElementById('amend-submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+
+    try {
+      const res = await fetch('/api/research/amend', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          job_id: amendJobId,
+          additional_questions: questions,
+          perspective: perspective,
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+
+      const jobId = data.job_id;
+      const now = Date.now();
+      activeJobs[jobId] = {
+        query: 'Amendment: ' + (document.getElementById('amend-original-query').textContent || '').substring(0, 80),
+        depth: 'STANDARD',
+        startTime: now,
+        estimatedSeconds: data.estimated_seconds || 300,
+        phase: 'Starting...', status: 'running',
+        phaseTimings: {}, researchStats: {}, studyProgress: [], currentStep: '',
+      };
+      viewingJobId = jobId;
+      persistActiveJobs();
+      resetProgressView(now, data.estimated_seconds || 300);
+      ensurePolling();
+      showView('progress');
+    } catch(e) {
+      alert('Failed to start amendment: ' + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Run Amendment';
+    }
+  }
+
+  async function deleteResearch(jobId) {
+    if (!confirm('Delete this research? This will remove it from the archive and all agents.')) return;
+    try {
+      const res = await fetch('/api/archive/' + jobId, { method: 'DELETE' });
+      if (res.ok) {
+        loadArchive(); // Refresh archive list
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to delete');
+      }
+    } catch(e) {
+      alert('Failed to delete: ' + e.message);
     }
   }
 
@@ -1283,6 +1532,146 @@ const App = (function() {
       btn.classList.add('text-emerald-500', 'border-emerald-300');
       setTimeout(() => { icon.textContent = 'content_copy'; btn.classList.remove('text-emerald-500', 'border-emerald-300'); }, 2000);
     }).catch(() => prompt('Copy this URL:', url));
+  }
+
+  /* ── Watches ── */
+  async function loadWatches() {
+    const list = document.getElementById('watches-list');
+    list.innerHTML = '<div class="flex justify-center py-8"><div class="w-6 h-6 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>';
+    try {
+      const res = await fetch('/api/watches');
+      const data = await res.json();
+      const watches = data.watches || [];
+      if (!watches.length) {
+        list.innerHTML = '<div class="flex flex-col items-center justify-center py-12 text-slate-400"><span class="material-icons text-4xl mb-2 opacity-40">visibility</span><p class="text-sm">No watches yet</p></div>';
+        return;
+      }
+      list.innerHTML = watches.map(w => {
+        const lastChecked = w.last_checked ? new Date(w.last_checked).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : 'Never';
+        const lastChanged = w.last_changed ? new Date(w.last_changed).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '';
+        const intervalLabel = w.interval_hours <= 6 ? 'Every 6h' : w.interval_hours <= 12 ? 'Every 12h' : w.interval_hours <= 24 ? 'Daily' : 'Weekly';
+        return `<div class="glass-panel rounded-xl p-3 shadow-glass border border-white/60">
+          <div class="flex items-start gap-2">
+            <span class="material-icons text-primary text-lg mt-0.5">visibility</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium text-slate-700 truncate">${esc(w.query)}</div>
+              <div class="flex flex-wrap gap-2 text-[10px] text-slate-400 mt-1">
+                <span class="bg-primary/10 text-primary px-1.5 py-0.5 rounded">${intervalLabel}</span>
+                <span>Last: ${lastChecked}</span>
+                ${lastChanged ? `<span class="text-amber-500">Changed: ${lastChanged}</span>` : ''}
+                <span>${w.history_count} checks</span>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 mt-2 ml-7">
+            <button onclick="App.checkWatch('${esc(w.id)}')" class="text-[11px] text-primary font-medium flex items-center gap-1 hover:underline"><span class="material-icons text-sm">refresh</span>Check now</button>
+            <button onclick="App.deleteWatch('${esc(w.id)}')" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-red-500 transition-colors ml-auto"><span class="material-icons text-sm">delete</span></button>
+          </div>
+        </div>`;
+      }).join('');
+    } catch(e) {
+      list.innerHTML = '<p class="text-sm text-red-400 text-center py-8">Failed to load watches</p>';
+    }
+  }
+
+  async function createWatch() {
+    const query = document.getElementById('watch-query').value.trim();
+    const interval = document.getElementById('watch-interval').value;
+    if (!query) { alert('Please enter a topic to monitor.'); return; }
+    try {
+      const res = await fetch('/api/watches', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ query, interval_hours: parseInt(interval) })
+      });
+      if (res.ok) {
+        document.getElementById('watch-query').value = '';
+        loadWatches();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to create watch');
+      }
+    } catch(e) {
+      alert('Failed: ' + e.message);
+    }
+  }
+
+  async function checkWatch(watchId) {
+    try {
+      const res = await fetch('/api/watches/' + watchId + '/check', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        const msg = data.changed ? 'Changes detected!\n\n' + data.summary : 'No significant changes detected.';
+        alert(msg);
+        loadWatches();
+      } else {
+        alert(data.error || 'Check failed');
+      }
+    } catch(e) {
+      alert('Check failed: ' + e.message);
+    }
+  }
+
+  async function deleteWatch(watchId) {
+    if (!confirm('Delete this watch?')) return;
+    try {
+      const res = await fetch('/api/watches/' + watchId, { method: 'DELETE' });
+      if (res.ok) loadWatches();
+    } catch(e) { alert('Failed: ' + e.message); }
+  }
+
+  /* ── Knowledge Graph ── */
+  let graphData = null;
+
+  async function loadGraph() {
+    const list = document.getElementById('graph-entities-list');
+    list.innerHTML = '<div class="flex justify-center py-8"><div class="w-6 h-6 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>';
+    try {
+      const res = await fetch('/api/graph');
+      graphData = await res.json();
+      document.getElementById('graph-entities-count').textContent = graphData.stats?.total_entities || 0;
+      document.getElementById('graph-rels-count').textContent = graphData.stats?.total_relationships || 0;
+      renderGraphEntities(graphData.entities || []);
+    } catch(e) {
+      list.innerHTML = '<p class="text-sm text-red-400 text-center py-8">Failed to load graph</p>';
+    }
+  }
+
+  function renderGraphEntities(entities) {
+    const list = document.getElementById('graph-entities-list');
+    if (!entities.length) {
+      list.innerHTML = '<div class="flex flex-col items-center justify-center py-12 text-slate-400"><span class="material-icons text-4xl mb-2 opacity-40">hub</span><p class="text-sm">No entities yet — complete some research first</p></div>';
+      return;
+    }
+    const typeColors = {company:'primary',person:'amber-500',product:'emerald-500',concept:'violet-500',technology:'cyan-500',regulation:'rose-500',market:'indigo-500'};
+    list.innerHTML = entities.map(e => {
+      const color = typeColors[e.type] || 'slate-400';
+      const rels = (graphData?.relationships || []).filter(r => r.from === e.name || r.to === e.name);
+      const relText = rels.slice(0,3).map(r => {
+        const other = r.from === e.name ? r.to : r.from;
+        return `<span class="text-[10px] text-slate-400">${esc(r.type.replace('_',' '))} → ${esc(other)}</span>`;
+      }).join(', ');
+      return `<div class="glass-panel rounded-lg p-3 shadow-glass border border-white/60">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-${color}"></span>
+          <span class="text-sm font-medium text-slate-700">${esc(e.name)}</span>
+          <span class="text-[10px] bg-${color}/10 text-${color} px-1.5 py-0.5 rounded font-medium">${esc(e.type)}</span>
+          <span class="text-[10px] text-slate-400 ml-auto">${e.mentions} mention${e.mentions !== 1 ? 's' : ''}</span>
+        </div>
+        ${relText ? `<div class="ml-4 mt-1 flex flex-wrap gap-1">${relText}</div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  function filterGraph(query) {
+    if (!graphData) return;
+    const q = query.toLowerCase();
+    const filtered = (graphData.entities || []).filter(e =>
+      e.name.toLowerCase().includes(q) ||
+      e.type.toLowerCase().includes(q) ||
+      (e.aliases || []).some(a => a.toLowerCase().includes(q))
+    );
+    renderGraphEntities(filtered);
   }
 
   /* ── Stats ── */
@@ -1377,8 +1766,11 @@ const App = (function() {
     }
   })();
 
+  /* ── Init reassign countdown ── */
+  restoreReassignCountdown();
+
   /* ── Public API ── */
-  return { showView, retry, assignToAgent, startCall, endCall, archiveChat, copyReportUrl, useSuggested, forceStart, resumeProgress, viewJob };
+  return { showView, retry, assignToAgent, startCall, endCall, archiveChat, copyReportUrl, useSuggested, forceStart, resumeProgress, viewJob, toggleReassign, deleteResearch, amendResearch, submitAmendment, filterGraph, createWatch, checkWatch, deleteWatch };
 })();
 </script>
 </body>

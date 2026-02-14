@@ -28,6 +28,7 @@ class JobInfo:
     elevenlabs_doc_id: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: str = ""
+    parent_job_id: str = ""  # for amendments — links to original research
     # Structured progress for DEEP pipeline
     study_plan: list = field(default_factory=list)
     study_progress: list = field(default_factory=list)  # [{title, status, rounds}]

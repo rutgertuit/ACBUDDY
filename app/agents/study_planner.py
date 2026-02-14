@@ -11,6 +11,10 @@ Output ONLY a valid JSON array of objects. Each object must have:
 - "title": A concise study title
 - "angle": The perspective or focus area (1 sentence)
 - "questions": An array of 2-4 specific, searchable research questions for this study
+- "recommended_role": One of "general", "domain_expert", "financial_analyst" — choose based on study content:
+  - "domain_expert" with "domain" field for studies requiring specialized domain knowledge (e.g., healthcare, legal, technology)
+  - "financial_analyst" for studies involving financial data, market analysis, company financials
+  - "general" for all other studies
 
 Example output:
 [
@@ -21,7 +25,17 @@ Example output:
       "What percentage of consumers read retail leaflets?",
       "How do digital vs print leaflets compare in consumer engagement?",
       "What drives consumer response to leaflet promotions?"
-    ]
+    ],
+    "recommended_role": "general"
+  },
+  {
+    "title": "Financial Impact on Retail Margins",
+    "angle": "Analyzing the cost-benefit of leaflet campaigns vs digital alternatives",
+    "questions": [
+      "What is the average ROI of leaflet marketing campaigns?",
+      "How do leaflet costs compare to digital marketing per acquisition?"
+    ],
+    "recommended_role": "financial_analyst"
   }
 ]
 

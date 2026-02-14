@@ -39,6 +39,8 @@ class Settings:
     openai_api_key: str = ""
     grok_api_key: str = ""
     newsapi_key: str = ""
+    alpha_vantage_api_key: str = ""
+    crunchbase_api_key: str = ""
 
     def __post_init__(self):
         self.environment = os.getenv("ENVIRONMENT", "local")
@@ -52,6 +54,8 @@ class Settings:
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
         self.grok_api_key = os.getenv("GROK_API_KEY", "")
         self.newsapi_key = os.getenv("NEWSAPI_KEY", "")
+        self.alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+        self.crunchbase_api_key = os.getenv("CRUNCHBASE_API_KEY", "")
 
         if self.environment == "local":
             self.elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY", "")

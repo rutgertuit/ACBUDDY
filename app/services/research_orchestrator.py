@@ -302,7 +302,8 @@ def run_research_for_ui(
             update_job(job_id, phase=f"Running {depth.value.upper()} pipeline")
             result = asyncio.run(
                 execute_research(query=user_query, context="", depth=depth,
-                                 on_progress=_on_progress)
+                                 on_progress=_on_progress,
+                                 gcs_bucket=settings.gcs_results_bucket)
             )
 
             # Upload consolidated KB doc to ElevenLabs
@@ -379,6 +380,42 @@ def run_research_for_ui(
                     research_stats={**final_stats, "human_hours": human_hours},
                 )
 
+            # Extract memories for cross-research learning (non-blocking)
+            try:
+                consolidated = _build_consolidated_text(result, user_query, depth.value)
+                if consolidated.strip():
+                    update_job(job_id, phase="Extracting memories")
+                    from app.agents.memory_extractor import extract_memories
+                    from app.services import memory_store
+                    memories = asyncio.run(extract_memories(consolidated[:15000]))
+                    if memories:
+                        store = memory_store.load_memory(settings.gcs_results_bucket)
+                        added = memory_store.add_memories(store, memories, job_id, user_query)
+                        memory_store.save_memory(store, settings.gcs_results_bucket)
+                        logger.info("Added %d memories from job %s", added, job_id)
+            except Exception:
+                logger.exception("Memory extraction failed (non-fatal)")
+
+            # Extract entities for knowledge graph (non-blocking)
+            try:
+                consolidated = _build_consolidated_text(result, user_query, depth.value)
+                if consolidated.strip():
+                    update_job(job_id, phase="Extracting knowledge graph")
+                    from app.agents.entity_extractor import extract_entities
+                    from app.services import knowledge_graph as kg
+                    extraction = asyncio.run(extract_entities(consolidated[:20000]))
+                    if extraction.get("entities"):
+                        graph = kg.load_graph(settings.gcs_results_bucket)
+                        kg.merge_extraction(graph, extraction, job_id)
+                        kg.save_graph(graph, settings.gcs_results_bucket)
+                        logger.info(
+                            "Knowledge graph updated: +%d entities, +%d relationships",
+                            len(extraction.get("entities", [])),
+                            len(extraction.get("relationships", [])),
+                        )
+            except Exception:
+                logger.exception("Knowledge graph extraction failed (non-fatal)")
+
             update_job(
                 job_id,
                 status=JobStatus.COMPLETED,
@@ -391,6 +428,152 @@ def run_research_for_ui(
 
         except Exception as e:
             logger.exception("UI research failed: job=%s", job_id)
+            update_job(
+                job_id,
+                status=JobStatus.FAILED,
+                phase="Failed",
+                error=str(e),
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+
+def run_amendment_for_ui(
+    job_id: str,
+    parent_job_id: str,
+    original_query: str,
+    additional_questions: list[str],
+    perspective: str,
+    settings: Settings,
+) -> None:
+    """Launch amendment pipeline in a daemon thread for the web UI."""
+
+    def _run():
+        try:
+            update_job(
+                job_id,
+                status=JobStatus.RUNNING,
+                phase="Preparing amendment",
+            )
+            logger.info("Amendment started: job=%s parent=%s", job_id, parent_job_id)
+
+            # Fetch original result from GCS
+            original_synthesis = ""
+            if settings.gcs_results_bucket:
+                meta = gcs_client.get_result_metadata(parent_job_id, settings.gcs_results_bucket)
+                if meta and meta.get("result_url"):
+                    # Download HTML and extract text
+                    try:
+                        import requests, re
+                        resp = requests.get(meta["result_url"], timeout=30)
+                        resp.raise_for_status()
+                        text = re.sub(r"<[^>]+>", " ", resp.text)
+                        text = re.sub(r"\s+", " ", text).strip()
+                        original_synthesis = text[:40000]
+                    except Exception:
+                        logger.warning("Failed to fetch original result HTML, using metadata")
+
+            if not original_synthesis:
+                original_synthesis = f"Original research query: {original_query}"
+
+            # Progress callback
+            def _on_progress(phase, **kwargs):
+                updates = {"phase": phase}
+                if "step" in kwargs:
+                    updates["current_step"] = kwargs["step"]
+                    step = kwargs["step"]
+                    timing_key = "studies" if step.startswith("study_") else step
+                    record_phase_timing(job_id, timing_key)
+                update_job(job_id, **updates)
+
+            # Execute amendment pipeline
+            from app.agents.amendment_researcher import execute_amendment
+            result = asyncio.run(
+                execute_amendment(
+                    original_query=original_query,
+                    original_synthesis=original_synthesis,
+                    additional_questions=additional_questions,
+                    perspective=perspective,
+                    on_progress=_on_progress,
+                )
+            )
+
+            # Upload to ElevenLabs KB
+            elevenlabs_doc_id = ""
+            if result.final_synthesis and settings.elevenlabs_api_key:
+                update_job(job_id, phase="Uploading to knowledge base")
+                try:
+                    doc_name = f"Amendment: {original_query[:60]} ({job_id})"
+                    elevenlabs_doc_id = _upload_with_retry(
+                        text=result.final_synthesis,
+                        name=doc_name,
+                        api_key=settings.elevenlabs_api_key,
+                    )
+                except Exception:
+                    logger.exception("Failed to upload amendment KB doc")
+
+            # Auto-attach to all agents
+            if elevenlabs_doc_id and settings.elevenlabs_api_key:
+                update_job(job_id, phase="Assigning to agents")
+                doc_name = f"Amendment: {original_query[:60]} ({job_id})"
+                for slug in AGENTS:
+                    agent_id = get_agent_id(slug, settings)
+                    if not agent_id:
+                        continue
+                    try:
+                        elevenlabs_client.attach_document_to_agent(
+                            agent_id=agent_id,
+                            doc_id=elevenlabs_doc_id,
+                            doc_name=doc_name,
+                            api_key=settings.elevenlabs_api_key,
+                        )
+                    except Exception:
+                        logger.exception("Failed to attach amendment to agent %s", slug)
+                try:
+                    elevenlabs_client.trigger_rag_index(
+                        doc_id=elevenlabs_doc_id,
+                        api_key=settings.elevenlabs_api_key,
+                    )
+                except Exception:
+                    logger.exception("Failed to trigger RAG index for amendment")
+
+            # Finalize timings
+            record_phase_timing(job_id, "upload")
+            timings = finalize_timings(job_id)
+
+            # Upload to GCS
+            result_url = ""
+            if settings.gcs_results_bucket and result.final_synthesis:
+                update_job(job_id, phase="Uploading results")
+                result_url = gcs_client.publish_results_with_metadata(
+                    result,
+                    f"Amendment of: {original_query}",
+                    "standard",
+                    job_id,
+                    settings.gcs_results_bucket,
+                    elevenlabs_doc_id=elevenlabs_doc_id,
+                    phase_timings=timings,
+                )
+                # Update metadata with parent link
+                gcs_client.update_metadata(job_id, settings.gcs_results_bucket, {
+                    "parent_job_id": parent_job_id,
+                    "amendment": True,
+                })
+
+            update_job(
+                job_id,
+                status=JobStatus.COMPLETED,
+                phase="Complete",
+                result_url=result_url,
+                elevenlabs_doc_id=elevenlabs_doc_id,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
+            logger.info("Amendment complete: job=%s url=%s", job_id, result_url)
+
+        except Exception as e:
+            logger.exception("Amendment failed: job=%s", job_id)
             update_job(
                 job_id,
                 status=JobStatus.FAILED,

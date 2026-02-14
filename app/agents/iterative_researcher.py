@@ -27,6 +27,7 @@ async def run_iterative_study(
     session_service: InMemorySessionService,
     model: str = MODEL,
     max_rounds: int = 3,
+    researcher_builder=None,
 ) -> StudyResult:
     """Run iterative deep research for a single study.
 
@@ -47,8 +48,9 @@ async def run_iterative_study(
 
         # Build parallel researchers for this round's questions
         prefix = f"study_{study_index}_round_{round_idx}_researcher"
+        _builder = researcher_builder or build_researcher
         researchers = [
-            build_researcher(j, model=model, prefix=f"study_{study_index}_round_{round_idx}_researcher")
+            _builder(j, model, f"study_{study_index}_round_{round_idx}_researcher")
             for j in range(len(questions))
         ]
 

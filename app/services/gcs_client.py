@@ -359,6 +359,28 @@ def publish_results_with_metadata(
     return result_url
 
 
+def delete_result(job_id: str, bucket_name: str) -> bool:
+    """Delete HTML + metadata JSON from GCS. Returns True if anything was deleted."""
+    if not bucket_name:
+        return False
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        deleted = False
+        for suffix in [".html", "_meta.json"]:
+            blob = bucket.blob(f"results/{job_id}{suffix}")
+            if blob.exists():
+                blob.delete()
+                deleted = True
+                logger.info("Deleted GCS blob: results/%s%s", job_id, suffix)
+        return deleted
+    except Exception:
+        logger.exception("Failed to delete result blobs for job %s", job_id)
+        return False
+
+
 def update_metadata(job_id: str, bucket_name: str, updates: dict) -> None:
     """Merge updates into an existing metadata JSON in GCS."""
     if not bucket_name:

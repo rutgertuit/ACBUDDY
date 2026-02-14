@@ -23,7 +23,7 @@ APP_NAME = "acbuddy_research"
 
 async def execute_research(
     query: str, context: str = "", depth: ResearchDepth = ResearchDepth.STANDARD,
-    on_progress=None,
+    on_progress=None, gcs_bucket: str = "",
 ) -> ResearchResult:
     """Execute research pipeline at the specified depth.
 
@@ -31,6 +31,23 @@ async def execute_research(
     STANDARD: Sub-questions → parallel research → follow-ups → synthesis.
     DEEP: Multi-study iterative pipeline (delegated to deep_pipeline).
     """
+    # Inject relevant memories from past research
+    memory_context = ""
+    try:
+        if gcs_bucket:
+            from app.services import memory_store
+            store = memory_store.load_memory(gcs_bucket)
+            relevant = memory_store.recall(store, query, top_k=5)
+            if relevant:
+                memory_parts = [f"- {m['content']}" for m in relevant]
+                memory_context = "\nRelevant findings from past research:\n" + "\n".join(memory_parts) + "\n"
+                logger.info("Injected %d memories into research context", len(relevant))
+    except Exception:
+        logger.warning("Failed to load memory context, proceeding without it")
+
+    if memory_context:
+        context = (context + memory_context) if context else memory_context
+
     if depth == ResearchDepth.DEEP:
         from app.agents.deep_pipeline import execute_deep_research
         return await execute_deep_research(query=query, context=context, on_progress=on_progress)

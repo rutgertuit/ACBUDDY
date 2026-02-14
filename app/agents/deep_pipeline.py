@@ -105,15 +105,27 @@ async def execute_deep_research(
     async def _study_with_sem(idx, study_dict):
         async with sem:
             title = study_dict.get("title", f"Study {idx}")
+            role = study_dict.get("recommended_role", "general")
+            domain = study_dict.get("domain", "")
             _progress(f"Researching: {title}", step=f"study_{idx}",
                       study_idx=idx, study_status="running")
             try:
+                # Select researcher builder based on role
+                researcher_builder = None
+                if role == "domain_expert" and domain:
+                    try:
+                        from app.agents.specialized_roles import build_domain_expert
+                        researcher_builder = lambda i, m, p: build_domain_expert(i, domain, m, p)
+                    except Exception:
+                        pass  # fall back to default
+
                 sr = await run_iterative_study(
                     study_index=idx,
                     study=study_dict,
                     session_service=InMemorySessionService(),
                     model=MODEL,
                     max_rounds=max_rounds_per_study,
+                    researcher_builder=researcher_builder,
                 )
                 _progress(f"Completed: {title}", step=f"study_{idx}",
                           study_idx=idx, study_status="done")
@@ -490,6 +502,102 @@ Be comprehensive. Mark any remaining areas of uncertainty explicitly."""
             else:
                 logger.warning("Refinement produced empty result, keeping previous synthesis")
                 break
+
+    # ---- Phase 4d: Enhanced Verification (if score < 7.5) ----
+    if result.master_synthesis and result.synthesis_score > 0 and result.synthesis_score < 7.5:
+        _progress("Running enhanced verification", step="verification")
+        logger.info("DEEP Phase 4d: Enhanced verification (score=%.1f < 7.5)", result.synthesis_score)
+
+        try:
+            from app.agents.specialized_roles import build_fact_checker, build_devils_advocate
+
+            verify_svc = InMemorySessionService()
+
+            # Run fact-checker
+            fact_checker = build_fact_checker(0, model=MODEL)
+            fc_runner = Runner(agent=fact_checker, app_name=APP_NAME, session_service=verify_svc)
+            fc_sess = verify_svc.create_session(app_name=APP_NAME, user_id="system")
+            fc_msg = types.Content(
+                role="user",
+                parts=[types.Part(text=f"Fact-check this research synthesis:\n\n{result.master_synthesis[:15000]}")],
+            )
+            fc_text = ""
+            async for event in fc_runner.run_async(
+                user_id="system", session_id=fc_sess.id, new_message=fc_msg
+            ):
+                if event.is_final_response() and event.content and event.content.parts:
+                    fc_text = event.content.parts[0].text
+
+            # Run devil's advocate
+            da_agent = build_devils_advocate(0, model=MODEL)
+            da_runner = Runner(agent=da_agent, app_name=APP_NAME, session_service=verify_svc)
+            da_sess = verify_svc.create_session(app_name=APP_NAME, user_id="system")
+            da_msg = types.Content(
+                role="user",
+                parts=[types.Part(text=f"Challenge this research synthesis:\n\n{result.master_synthesis[:15000]}")],
+            )
+            da_text = ""
+            async for event in da_runner.run_async(
+                user_id="system", session_id=da_sess.id, new_message=da_msg
+            ):
+                if event.is_final_response() and event.content and event.content.parts:
+                    da_text = event.content.parts[0].text
+
+            # Incorporate verification findings into synthesis
+            if fc_text or da_text:
+                _progress("Incorporating verification findings", step="refinement")
+                verify_refs = ""
+                verify_state = dict(master_state)
+                if fc_text:
+                    verify_refs += "\n- Fact-check findings: {fact_check_findings}"
+                    verify_state["fact_check_findings"] = fc_text
+                if da_text:
+                    verify_refs += "\n- Devil's advocate findings: {devils_advocate_findings}"
+                    verify_state["devils_advocate_findings"] = da_text
+
+                verify_instruction = f"""You are refining a research briefing using verification feedback.
+
+Original study syntheses:
+{study_refs}
+
+Verification findings:
+{verify_refs}
+
+Produce an improved briefing that:
+- Removes or weakens claims flagged as unverified by the fact-checker
+- Acknowledges strong counter-evidence from the devil's advocate
+- Strengthens well-verified claims
+- Maintains the same format as the original briefing
+
+Format as: # Executive Research Briefing: {query}
+(same sections as before)"""
+
+                verify_agent = LlmAgent(
+                    name="verified_synthesizer",
+                    model=MODEL,
+                    instruction=verify_instruction,
+                    output_key="verified_synthesis",
+                )
+                v_runner = Runner(agent=verify_agent, app_name=APP_NAME, session_service=session_service)
+                v_sess = session_service.create_session(
+                    app_name=APP_NAME, user_id="system", state=verify_state
+                )
+                v_msg = types.Content(
+                    role="user",
+                    parts=[types.Part(text=f"Create a verified briefing for: {query}")],
+                )
+                v_text = ""
+                async for event in v_runner.run_async(
+                    user_id="system", session_id=v_sess.id, new_message=v_msg
+                ):
+                    if event.is_final_response() and event.content and event.content.parts:
+                        v_text = event.content.parts[0].text
+
+                if v_text:
+                    result.master_synthesis = v_text
+                    logger.info("Enhanced verification complete: %d chars", len(v_text))
+        except Exception:
+            logger.exception("Enhanced verification failed, continuing with existing synthesis")
 
     # ---- Phase 4c: Strategic Analysis ----
     if result.master_synthesis:

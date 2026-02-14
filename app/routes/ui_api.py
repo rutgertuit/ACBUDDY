@@ -8,8 +8,11 @@ from flask import Blueprint, current_app, jsonify, render_template, request
 from app.agents.agent_profiles import AGENTS, get_agent_id
 from app.models.depth import ResearchDepth
 from app.services import elevenlabs_client, gcs_client
-from app.services.job_tracker import JobStatus, count_active_jobs, create_job, get_job
-from app.services.research_orchestrator import run_research_for_ui
+from app.services import knowledge_graph as kg
+from app.services import memory_store
+from app.services import watch_store
+from app.services.job_tracker import JobStatus, count_active_jobs, create_job, get_job, update_job
+from app.services.research_orchestrator import run_research_for_ui, run_amendment_for_ui
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +121,57 @@ def start_research():
     return jsonify({"job_id": job_id, "estimated_seconds": estimated}), 202
 
 
+@ui_api_bp.route("/api/research/amend", methods=["POST"])
+def amend_research():
+    """Start an amendment pipeline. Body: {job_id, additional_questions, perspective}."""
+    data = request.get_json(silent=True) or {}
+    parent_job_id = (data.get("job_id") or "").strip()
+    questions_raw = data.get("additional_questions", "")
+    perspective = (data.get("perspective") or "").strip()
+
+    if not parent_job_id:
+        return jsonify({"error": "job_id is required"}), 400
+
+    # Parse questions: accept string (newline-separated) or list
+    if isinstance(questions_raw, str):
+        additional_questions = [q.strip() for q in questions_raw.split("\n") if q.strip()]
+    elif isinstance(questions_raw, list):
+        additional_questions = [str(q).strip() for q in questions_raw if str(q).strip()]
+    else:
+        additional_questions = []
+
+    if not additional_questions:
+        return jsonify({"error": "additional_questions is required"}), 400
+
+    settings = current_app.config["SETTINGS"]
+
+    # Fetch original query from metadata
+    meta = gcs_client.get_result_metadata(parent_job_id, settings.gcs_results_bucket)
+    original_query = meta.get("query", "") if meta else ""
+    if not original_query:
+        return jsonify({"error": "Original research not found"}), 404
+
+    # Create new job
+    new_job_id = create_job(f"Amendment: {original_query[:80]}", "STANDARD")
+    update_job(new_job_id, parent_job_id=parent_job_id)
+
+    run_amendment_for_ui(
+        job_id=new_job_id,
+        parent_job_id=parent_job_id,
+        original_query=original_query,
+        additional_questions=additional_questions,
+        perspective=perspective,
+        settings=settings,
+    )
+
+    logger.info("Amendment job created: job=%s parent=%s", new_job_id, parent_job_id)
+    return jsonify({
+        "job_id": new_job_id,
+        "parent_job_id": parent_job_id,
+        "estimated_seconds": 300,
+    }), 202
+
+
 @ui_api_bp.route("/api/status/<job_id>")
 def job_status(job_id: str):
     """Poll status of a research job."""
@@ -141,6 +195,7 @@ def job_status(job_id: str):
         "current_step": job.current_step,
         "phase_timings": job.phase_timings,
         "research_stats": job.research_stats,
+        "parent_job_id": job.parent_job_id,
     })
 
 
@@ -150,6 +205,45 @@ def archive():
     settings = current_app.config["SETTINGS"]
     results = gcs_client.list_results_metadata(settings.gcs_results_bucket)
     return jsonify({"results": results})
+
+
+@ui_api_bp.route("/api/archive/<job_id>", methods=["DELETE"])
+def delete_archive(job_id: str):
+    """Delete a research result: detach from agents, delete from GCS."""
+    settings = current_app.config["SETTINGS"]
+    bucket = settings.gcs_results_bucket
+
+    # Fetch metadata to find elevenlabs_doc_id
+    meta = gcs_client.get_result_metadata(job_id, bucket)
+    if meta is None:
+        return jsonify({"error": "Research not found"}), 404
+
+    doc_id = meta.get("elevenlabs_doc_id", "")
+
+    # Detach from all 3 agents
+    if doc_id and settings.elevenlabs_api_key:
+        for slug in AGENTS:
+            agent_id = get_agent_id(slug, settings)
+            if not agent_id:
+                continue
+            try:
+                elevenlabs_client.detach_document_from_agent(
+                    agent_id=agent_id,
+                    doc_id=doc_id,
+                    api_key=settings.elevenlabs_api_key,
+                )
+            except Exception:
+                logger.warning("Failed to detach doc %s from agent %s", doc_id, slug)
+
+    # Delete GCS blobs
+    gcs_client.delete_result(job_id, bucket)
+
+    # Invalidate caches
+    for s in AGENTS:
+        _cache.pop(f"kb_docs_{s}", None)
+    _cache.pop("completed_count", None)
+
+    return jsonify({"ok": True})
 
 
 @ui_api_bp.route("/api/stats")
@@ -343,3 +437,179 @@ def detach_kb(slug: str, doc_id: str):
     except Exception as e:
         logger.exception("Failed to detach doc %s from agent %s", doc_id, slug)
         return jsonify({"error": str(e)}), 500
+
+
+# ── Knowledge Graph endpoints ──
+
+
+@ui_api_bp.route("/api/graph")
+def get_graph():
+    """Return the full knowledge graph with stats."""
+    settings = current_app.config["SETTINGS"]
+    graph = kg.load_graph(settings.gcs_results_bucket)
+    stats = kg.get_graph_stats(graph)
+    return jsonify({
+        "stats": stats,
+        "entities": [
+            {"name": e.name, "type": e.type, "aliases": e.aliases, "mentions": len(e.source_jobs)}
+            for e in graph.entities.values()
+        ],
+        "relationships": [
+            {"from": r.from_entity, "to": r.to_entity, "type": r.type,
+             "description": r.description, "mentions": len(r.source_jobs)}
+            for r in graph.relationships
+        ],
+    })
+
+
+@ui_api_bp.route("/api/graph/entity/<name>")
+def get_graph_entity(name: str):
+    """Find connections for a specific entity."""
+    settings = current_app.config["SETTINGS"]
+    graph = kg.load_graph(settings.gcs_results_bucket)
+    result = kg.find_connections(graph, name)
+    return jsonify(result)
+
+
+# ── Memory endpoints ──
+
+
+@ui_api_bp.route("/api/memory")
+def get_memory():
+    """List all memories with stats."""
+    settings = current_app.config["SETTINGS"]
+    store = memory_store.load_memory(settings.gcs_results_bucket)
+    stats = memory_store.get_memory_stats(store)
+    entries = [
+        {"id": e.id, "type": e.type, "content": e.content,
+         "source_query": e.source_query, "tags": e.tags, "created_at": e.created_at}
+        for e in store.entries
+    ]
+    return jsonify({"stats": stats, "entries": entries})
+
+
+@ui_api_bp.route("/api/memory/recall")
+def recall_memory():
+    """Recall relevant memories for a query. Query param: ?q=..."""
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"error": "q parameter required"}), 400
+    settings = current_app.config["SETTINGS"]
+    store = memory_store.load_memory(settings.gcs_results_bucket)
+    results = memory_store.recall(store, query)
+    return jsonify({"results": results, "count": len(results)})
+
+
+@ui_api_bp.route("/api/memory/<memory_id>", methods=["DELETE"])
+def delete_memory_entry(memory_id: str):
+    """Delete a memory entry."""
+    settings = current_app.config["SETTINGS"]
+    store = memory_store.load_memory(settings.gcs_results_bucket)
+    if memory_store.delete_memory(store, memory_id):
+        memory_store.save_memory(store, settings.gcs_results_bucket)
+        return jsonify({"ok": True})
+    return jsonify({"error": "Memory not found"}), 404
+
+
+# ── Watch endpoints ──
+
+
+@ui_api_bp.route("/api/watches", methods=["POST"])
+def create_watch_endpoint():
+    """Create a research watch. Body: {query, interval_hours}."""
+    data = request.get_json(silent=True) or {}
+    query = (data.get("query") or "").strip()
+    interval_hours = int(data.get("interval_hours", 24))
+
+    if not query:
+        return jsonify({"error": "query is required"}), 400
+
+    settings = current_app.config["SETTINGS"]
+    watch = watch_store.create_watch(query, interval_hours, settings.gcs_results_bucket)
+    return jsonify({
+        "id": watch.id,
+        "query": watch.query,
+        "interval_hours": watch.interval_hours,
+        "created_at": watch.created_at,
+    }), 201
+
+
+@ui_api_bp.route("/api/watches")
+def list_watches_endpoint():
+    """List all research watches."""
+    settings = current_app.config["SETTINGS"]
+    watches = watch_store.list_watches(settings.gcs_results_bucket)
+    return jsonify({
+        "watches": [
+            {
+                "id": w.id, "query": w.query, "interval_hours": w.interval_hours,
+                "created_at": w.created_at, "last_checked": w.last_checked,
+                "active": w.active, "history_count": len(w.history),
+                "last_changed": next(
+                    (h["checked_at"] for h in reversed(w.history) if h.get("changed")), ""
+                ),
+            }
+            for w in watches
+        ]
+    })
+
+
+@ui_api_bp.route("/api/watches/<watch_id>/check", methods=["POST"])
+def check_watch_endpoint(watch_id: str):
+    """Manually trigger a watch check."""
+    import asyncio
+
+    settings = current_app.config["SETTINGS"]
+    watch = watch_store.get_watch(watch_id, settings.gcs_results_bucket)
+    if not watch:
+        return jsonify({"error": "Watch not found"}), 404
+
+    try:
+        from app.agents.watch_checker import check_watch
+        findings = asyncio.run(check_watch(watch.query))
+        update = watch_store.record_check(watch, findings, settings.gcs_results_bucket)
+        return jsonify({
+            "checked_at": update.checked_at,
+            "changed": update.changed,
+            "summary": update.summary,
+        })
+    except Exception as e:
+        logger.exception("Watch check failed for %s", watch_id)
+        return jsonify({"error": str(e)}), 500
+
+
+@ui_api_bp.route("/api/watches/<watch_id>", methods=["DELETE"])
+def delete_watch_endpoint(watch_id: str):
+    """Delete a research watch."""
+    settings = current_app.config["SETTINGS"]
+    if watch_store.delete_watch(watch_id, settings.gcs_results_bucket):
+        return jsonify({"ok": True})
+    return jsonify({"error": "Watch not found"}), 404
+
+
+@ui_api_bp.route("/api/watches/check-all", methods=["POST"])
+def check_all_watches_endpoint():
+    """Check all due watches. For Cloud Scheduler automation."""
+    import asyncio
+
+    settings = current_app.config["SETTINGS"]
+    due = watch_store.get_due_watches(settings.gcs_results_bucket)
+    if not due:
+        return jsonify({"checked": 0, "message": "No watches due"})
+
+    results = []
+    for watch in due:
+        try:
+            from app.agents.watch_checker import check_watch
+            findings = asyncio.run(check_watch(watch.query))
+            update = watch_store.record_check(watch, findings, settings.gcs_results_bucket)
+            results.append({
+                "watch_id": watch.id,
+                "query": watch.query,
+                "changed": update.changed,
+            })
+        except Exception as e:
+            logger.exception("Watch check failed for %s", watch.id)
+            results.append({"watch_id": watch.id, "error": str(e)})
+
+    return jsonify({"checked": len(results), "results": results})

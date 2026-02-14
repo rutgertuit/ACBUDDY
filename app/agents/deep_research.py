@@ -199,6 +199,96 @@ def _deep_reason(question: str, context: str) -> str:
     return result or f"No reasoning output for: {question}"
 
 
+def _search_financial(query: str) -> str:
+    """Search for financial data including stock prices, company fundamentals, and SEC filings.
+
+    Use this tool when the research involves:
+    - Stock prices, market caps, P/E ratios
+    - Company financial fundamentals
+    - SEC filings (10-K, 10-Q, 8-K)
+    - Financial comparisons between companies
+
+    Args:
+        query: Financial search query (e.g., "AAPL stock overview" or "Tesla SEC 10-K filings").
+
+    Returns:
+        Formatted financial data with sources.
+    """
+    from app.services import financial_client
+    from app.services.research_stats import increment
+
+    increment("web_searches")
+    parts = []
+
+    # Detect ticker symbols (uppercase 1-5 letter words)
+    import re
+    tickers = re.findall(r'\b[A-Z]{1,5}\b', query)
+    api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "")
+
+    for ticker in tickers[:3]:
+        data = financial_client.get_stock_data(ticker, api_key)
+        if "error" not in data:
+            parts.append(f"**{data.get('name', ticker)} ({ticker})**")
+            for k, v in data.items():
+                if k not in ("ticker", "name", "error") and v:
+                    parts.append(f"  {k.replace('_', ' ').title()}: {v}")
+            parts.append("")
+
+    # Search SEC filings if query mentions filings, SEC, 10-K etc.
+    filing_keywords = ["sec", "filing", "10-k", "10-q", "8-k", "annual report"]
+    if any(kw in query.lower() for kw in filing_keywords):
+        company = query.split("SEC")[0].split("filing")[0].strip() if "SEC" in query or "filing" in query.lower() else query
+        filings = financial_client.search_sec_filings(company)
+        if filings and "error" not in filings[0]:
+            parts.append("**SEC Filings:**")
+            for f in filings[:5]:
+                parts.append(f"  - {f.get('form_type', '')} filed {f.get('filed_date', '')}: {f.get('url', '')}")
+            parts.append("")
+
+    return "\n".join(parts) if parts else f"No financial data found for: {query}"
+
+
+def _search_company(company_name: str) -> str:
+    """Search for company profile and competitive intelligence.
+
+    Use this tool when the research involves:
+    - Company background and description
+    - Funding history and investors
+    - Employee count and growth
+    - Competitive landscape
+
+    Args:
+        company_name: The company name to look up.
+
+    Returns:
+        Formatted company profile with sources.
+    """
+    from app.services import competitive_intel_client
+    from app.services.research_stats import increment
+
+    increment("web_searches")
+    api_key = os.getenv("CRUNCHBASE_API_KEY", "")
+    data = competitive_intel_client.get_company_profile(company_name, api_key)
+
+    if "error" in data and not data.get("description"):
+        return f"No company profile found for: {company_name}"
+
+    parts = [f"**{data.get('name', company_name)}**"]
+    if data.get("description"):
+        parts.append(data["description"])
+    for k in ["founded", "employees", "total_funding", "last_funding", "categories", "location"]:
+        v = data.get(k)
+        if v:
+            if isinstance(v, list):
+                v = ", ".join(str(x) for x in v)
+            parts.append(f"  {k.replace('_', ' ').title()}: {v}")
+    if data.get("url"):
+        parts.append(f"  Source: {data['url']}")
+    parts.append(f"  Data source: {data.get('source', 'unknown')}")
+
+    return "\n".join(parts)
+
+
 RESEARCHER_INSTRUCTION = """You are a thorough research agent with access to multiple search sources.
 Your task is to research the following question using the best combination of tools.
 
@@ -209,14 +299,19 @@ Available tools and when to use them:
 4. **deep_reason** — For complex analytical questions. Pass your gathered findings as context and
    ask it to reason about implications, causal chains, or strategic scenarios.
 5. **pull_sources** — Fetch and read full content from specific URLs found in search results.
+6. **search_financial** — For stock data, company fundamentals, P/E ratios, market caps, SEC filings.
+   Use when researching publicly traded companies or financial topics.
+7. **search_company** — For company profiles, funding history, employee counts, competitive intelligence.
+   Use when researching specific companies or competitive landscapes.
 
 Research strategy:
 1. Start with web_search for foundational information.
 2. If the question involves recent events or market developments, ALSO use search_news.
 3. If the question involves public opinion, trends, or social dynamics, ALSO use search_grok.
-4. If you have gathered enough data but need deeper analysis, use deep_reason with your findings as context.
-5. Use pull_sources to read full content from the most relevant URLs.
-6. Synthesize ALL findings into a clear, detailed summary with citations.
+4. If researching specific companies, use search_company and search_financial for hard data.
+5. If you have gathered enough data but need deeper analysis, use deep_reason with your findings as context.
+6. Use pull_sources to read full content from the most relevant URLs.
+7. Synthesize ALL findings into a clear, detailed summary with citations.
 
 Rules:
 - Include specific facts, data points, and source URLs in your response.
@@ -249,6 +344,9 @@ def build_researcher(index: int, model: str = "gemini-2.0-flash", prefix: str = 
         tools.append(_search_grok)
     if os.getenv("OPENAI_API_KEY", ""):
         tools.append(_deep_reason)
+    # Domain tools — always available (they handle missing keys gracefully)
+    tools.append(_search_financial)
+    tools.append(_search_company)
 
     return LlmAgent(
         name=f"researcher_{index}",
