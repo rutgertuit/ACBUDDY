@@ -108,8 +108,14 @@ Steps:
 2. Use pull_sources to fetch and read the most relevant URLs from search results
 3. Synthesize your findings into a clear, detailed summary with citations
 
-Include specific facts, data points, and source URLs in your response.
-Be thorough but concise. Focus on accuracy and relevance.
+Rules:
+- Include specific facts, data points, and source URLs in your response.
+- Every claim MUST be backed by a specific source URL. If you cannot verify a claim with a
+  concrete source, DO NOT include it. Omit unverified or speculative information entirely.
+- Stay strictly within the geographic, temporal, and topical scope of the question. If the
+  question is about a specific country or region, only include data and examples from that
+  geography. Do not pad findings with data from other regions.
+- Be thorough but concise. Focus on accuracy and relevance.
 """
 
 

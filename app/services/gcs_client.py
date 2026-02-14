@@ -1,6 +1,7 @@
 """Generate an HTML results page and upload it to Google Cloud Storage."""
 
 import html
+import json
 import logging
 import re
 from datetime import datetime, timezone
@@ -216,3 +217,99 @@ def publish_results(
     """Generate HTML and upload to GCS. Returns public URL or empty string."""
     html_content = generate_html(result, query, depth)
     return upload_html(html_content, conversation_id, bucket_name)
+
+
+# ---------------------------------------------------------------------------
+# Metadata helpers for the Web UI
+# ---------------------------------------------------------------------------
+
+
+def upload_metadata(metadata: dict, job_id: str, bucket_name: str) -> None:
+    """Write a JSON metadata file to GCS at results/{job_id}_meta.json."""
+    if not bucket_name:
+        return
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(f"results/{job_id}_meta.json")
+        blob.upload_from_string(json.dumps(metadata), content_type="application/json")
+    except Exception:
+        logger.exception("Failed to upload metadata for job %s", job_id)
+
+
+def list_results_metadata(bucket_name: str, limit: int = 50) -> list[dict]:
+    """List metadata JSON blobs in GCS, return parsed list sorted newest-first."""
+    if not bucket_name:
+        return []
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blobs = list(bucket.list_blobs(prefix="results/", max_results=500))
+
+        meta_blobs = [b for b in blobs if b.name.endswith("_meta.json")]
+        meta_blobs.sort(key=lambda b: b.time_created or b.updated, reverse=True)
+
+        results = []
+        for blob in meta_blobs[:limit]:
+            try:
+                data = json.loads(blob.download_as_text())
+                results.append(data)
+            except Exception:
+                logger.warning("Failed to parse metadata blob %s", blob.name)
+        return results
+    except Exception:
+        logger.exception("Failed to list results metadata from GCS")
+        return []
+
+
+def get_result_metadata(job_id: str, bucket_name: str) -> dict | None:
+    """Fetch a single metadata JSON from GCS."""
+    if not bucket_name:
+        return None
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(f"results/{job_id}_meta.json")
+        if not blob.exists():
+            return None
+        return json.loads(blob.download_as_text())
+    except Exception:
+        logger.exception("Failed to fetch metadata for job %s", job_id)
+        return None
+
+
+def publish_results_with_metadata(
+    result: ResearchResult,
+    query: str,
+    depth: str,
+    job_id: str,
+    bucket_name: str,
+) -> str:
+    """Generate HTML, upload it, then write a metadata JSON alongside it.
+
+    Returns the public URL of the HTML page, or empty string on failure.
+    """
+    html_content = generate_html(result, query, depth)
+    result_url = upload_html(html_content, job_id, bucket_name)
+
+    num_studies = len(result.studies) if result.studies else 0
+    now = datetime.now(timezone.utc).isoformat()
+
+    metadata = {
+        "job_id": job_id,
+        "query": query,
+        "depth": depth.upper(),
+        "status": "completed",
+        "created_at": now,
+        "completed_at": now,
+        "result_url": result_url,
+        "num_studies": num_studies,
+    }
+    upload_metadata(metadata, job_id, bucket_name)
+    return result_url

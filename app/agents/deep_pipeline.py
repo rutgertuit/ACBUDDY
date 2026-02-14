@@ -119,6 +119,12 @@ independent study findings into a single executive briefing.
 Available study syntheses:
 {study_refs}
 
+IMPORTANT RULES:
+- Only include insights that are backed by specific, verifiable source URLs from the studies.
+  If a study flags findings as unverified or lacking sources, do NOT carry those into this briefing.
+- Maintain strict geographic and topical scope. If the research query targets a specific country
+  or region, exclude data and examples from other geographies unless explicitly comparative.
+
 Format as:
 
 # Executive Research Briefing: {query}
@@ -136,7 +142,7 @@ Format as:
 (Top 10 actionable findings with supporting evidence)
 
 ## Sources
-(Consolidated list of all sources across studies)
+(Consolidated list of all sources across studies — only URLs that back claims used above)
 
 ## Confidence Assessment
 (Overall confidence: High/Medium/Low with justification per study area)

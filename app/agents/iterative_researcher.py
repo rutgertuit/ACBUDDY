@@ -194,6 +194,14 @@ Study angle: {angle}
 Synthesize ALL the following research findings into a comprehensive study document:
 {synth_refs}
 
+IMPORTANT RULES:
+- Only include findings that are backed by a specific, verifiable source URL. If a finding
+  says "source could not be verified" or lacks a concrete URL, EXCLUDE it from the synthesis.
+- Stay strictly within the geographic and topical scope of the original research query. Remove
+  any data, examples, or references from outside the relevant geography (e.g., do not include
+  German or UK broadcaster data in a study about the Netherlands).
+- Prefer fewer, well-sourced insights over a long list of unverified claims.
+
 Format your output as a professional study document with:
 # {title}
 
@@ -204,7 +212,7 @@ Format your output as a professional study document with:
 (Organized by subtopic with bullet points and data)
 
 ## Sources
-(All URLs referenced)
+(All URLs referenced — only include URLs that back claims used above)
 
 ## Key Takeaways
 (3-5 actionable insights from this study)

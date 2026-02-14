@@ -20,9 +20,11 @@ def create_app() -> Flask:
     # Register blueprints
     from app.routes.health import health_bp
     from app.routes.webhook import webhook_bp
+    from app.routes.ui_api import ui_api_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(webhook_bp)
+    app.register_blueprint(ui_api_bp)
 
     app.logger.info("ACBUDDY started (environment=%s)", settings.environment)
     return app

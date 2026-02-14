@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import threading
 import time
+from datetime import datetime, timezone
 
 from app.config import Settings
 from app.models.depth import ResearchDepth
 from app.services import elevenlabs_client, gcs_client
+from app.services.job_tracker import JobStatus, update_job
 from app.agents.root_agent import execute_research
 
 logger = logging.getLogger(__name__)
@@ -180,6 +183,72 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
         )
         if url:
             logger.info("Results page: %s", url)
+
+
+def run_research_for_ui(
+    job_id: str,
+    user_query: str,
+    depth: ResearchDepth,
+    settings: Settings,
+) -> None:
+    """Launch research in a daemon thread for the web UI.
+
+    Updates job_tracker at each phase. Does NOT upload to ElevenLabs KB.
+    """
+
+    def _run():
+        try:
+            update_job(
+                job_id,
+                status=JobStatus.RUNNING,
+                phase="Starting research pipeline",
+            )
+            logger.info(
+                "UI research started: job=%s depth=%s query=%s",
+                job_id,
+                depth.value,
+                user_query[:100],
+            )
+
+            # Execute ADK research pipeline
+            update_job(job_id, phase=f"Running {depth.value.upper()} pipeline")
+            result = asyncio.run(
+                execute_research(query=user_query, context="", depth=depth)
+            )
+
+            # Upload results to GCS
+            update_job(job_id, phase="Uploading results")
+            result_url = ""
+            if settings.gcs_results_bucket:
+                result_url = gcs_client.publish_results_with_metadata(
+                    result,
+                    user_query,
+                    depth.value,
+                    job_id,
+                    settings.gcs_results_bucket,
+                )
+
+            update_job(
+                job_id,
+                status=JobStatus.COMPLETED,
+                phase="Complete",
+                result_url=result_url,
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
+            logger.info("UI research complete: job=%s url=%s", job_id, result_url)
+
+        except Exception as e:
+            logger.exception("UI research failed: job=%s", job_id)
+            update_job(
+                job_id,
+                status=JobStatus.FAILED,
+                phase="Failed",
+                error=str(e),
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
 
 
 def _upload_with_retry(text: str, name: str, api_key: str) -> str:

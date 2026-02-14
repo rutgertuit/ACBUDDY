@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ACBUDDY Research</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+<style>
+:root {
+  --primary: #0dccf2;
+  --primary-dim: rgba(13,204,242,0.15);
+  --bg: #0a0e1a;
+  --surface: rgba(255,255,255,0.06);
+  --surface-hover: rgba(255,255,255,0.10);
+  --border: rgba(255,255,255,0.08);
+  --text: #e8eaf0;
+  --text-dim: #8a8fa8;
+  --danger: #f44;
+  --success: #0f6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);
+  min-height:100dvh;display:flex;flex-direction:column;align-items:center;
+  -webkit-font-smoothing:antialiased;
+}
+.app{width:100%;max-width:400px;min-height:100dvh;display:flex;flex-direction:column;padding:0 16px}
+.view{display:none;flex:1;flex-direction:column;padding-top:24px;padding-bottom:80px}
+.view.active{display:flex}
+
+/* ── Header ── */
+.header{text-align:center;margin-bottom:24px}
+.header h1{font-size:20px;font-weight:700;letter-spacing:-.3px}
+.header h1 span{color:var(--primary)}
+.header p{font-size:13px;color:var(--text-dim);margin-top:4px}
+
+/* ── Glass Card ── */
+.card{
+  background:var(--surface);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px;
+}
+
+/* ── Form ── */
+textarea{
+  width:100%;min-height:120px;background:rgba(255,255,255,0.04);border:1px solid var(--border);
+  border-radius:12px;padding:14px;color:var(--text);font-family:inherit;font-size:14px;
+  resize:vertical;outline:none;transition:border .2s;
+}
+textarea:focus{border-color:var(--primary)}
+textarea::placeholder{color:var(--text-dim)}
+
+.depth-selector{display:flex;gap:8px;margin-top:14px}
+.depth-btn{
+  flex:1;padding:10px 0;border:1px solid var(--border);border-radius:10px;
+  background:transparent;color:var(--text-dim);font-family:inherit;font-size:13px;
+  font-weight:500;cursor:pointer;transition:all .2s;
+}
+.depth-btn.active{border-color:var(--primary);color:var(--primary);background:var(--primary-dim)}
+.depth-btn:hover:not(.active){background:var(--surface-hover)}
+
+.launch-btn{
+  width:100%;margin-top:18px;padding:14px;border:none;border-radius:12px;
+  background:var(--primary);color:#000;font-family:inherit;font-size:15px;
+  font-weight:600;cursor:pointer;transition:opacity .2s;
+}
+.launch-btn:hover{opacity:.85}
+.launch-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── Progress ── */
+.progress-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px}
+.orbital{position:relative;width:100px;height:100px}
+.orbital-ring{
+  position:absolute;inset:0;border:2px solid var(--border);border-top-color:var(--primary);
+  border-radius:50%;animation:spin 1.2s linear infinite;
+}
+.orbital-ring:nth-child(2){inset:12px;animation-duration:1.8s;animation-direction:reverse;border-top-color:rgba(13,204,242,.5)}
+.orbital-ring:nth-child(3){inset:24px;animation-duration:2.4s;border-top-color:rgba(13,204,242,.25)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.phase-text{font-size:14px;color:var(--text-dim);text-align:center}
+.elapsed{font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums}
+
+/* ── Result / Error ── */
+.result-icon{font-size:64px;color:var(--success);text-align:center;margin-bottom:12px}
+.error-icon{font-size:64px;color:var(--danger);text-align:center;margin-bottom:12px}
+.result-title{font-size:18px;font-weight:600;text-align:center;margin-bottom:8px}
+.result-sub{font-size:13px;color:var(--text-dim);text-align:center;margin-bottom:20px}
+.result-btn{
+  display:block;width:100%;padding:14px;border:none;border-radius:12px;
+  background:var(--primary);color:#000;font-family:inherit;font-size:15px;
+  font-weight:600;cursor:pointer;text-align:center;text-decoration:none;
+  margin-bottom:10px;transition:opacity .2s;
+}
+.result-btn:hover{opacity:.85}
+.result-btn.outline{
+  background:transparent;border:1px solid var(--border);color:var(--text);
+}
+.result-btn.outline:hover{background:var(--surface-hover)}
+
+/* ── Archive ── */
+.archive-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text-dim)}
+.archive-empty .material-icons-round{font-size:48px;margin-bottom:8px;opacity:.4}
+.archive-card{
+  background:var(--surface);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:10px;
+  cursor:pointer;transition:background .2s;
+}
+.archive-card:hover{background:var(--surface-hover)}
+.archive-card h3{font-size:14px;font-weight:600;margin-bottom:4px;line-height:1.4;
+  overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.archive-meta{display:flex;gap:12px;font-size:12px;color:var(--text-dim)}
+.archive-meta .tag{
+  background:var(--primary-dim);color:var(--primary);padding:2px 8px;border-radius:6px;
+  font-size:11px;font-weight:600;
+}
+
+/* ── Bottom Nav ── */
+.bottom-nav{
+  position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:400px;
+  display:flex;background:rgba(10,14,26,.92);backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);border-top:1px solid var(--border);
+  padding:6px 0 env(safe-area-inset-bottom,8px);z-index:100;
+}
+.nav-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:8px 0;color:var(--text-dim);font-size:11px;font-weight:500;
+  cursor:pointer;transition:color .2s;border:none;background:none;font-family:inherit;
+}
+.nav-item .material-icons-round{font-size:22px}
+.nav-item.active,.nav-item.active .material-icons-round{color:var(--primary)}
+
+/* ── Loading spinner ── */
+.loading-spinner{display:flex;justify-content:center;padding:40px}
+.loading-spinner::after{
+  content:'';width:28px;height:28px;border:2px solid var(--border);
+  border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══ HOME VIEW ═══ -->
+  <div id="view-home" class="view active">
+    <div class="header">
+      <h1>AC<span>BUDDY</span></h1>
+      <p>AI Research Assistant</p>
+    </div>
+    <div class="card">
+      <textarea id="query-input" placeholder="What would you like to research?"></textarea>
+      <div class="depth-selector">
+        <button class="depth-btn" data-depth="QUICK">Quick</button>
+        <button class="depth-btn active" data-depth="STANDARD">Standard</button>
+        <button class="depth-btn" data-depth="DEEP">Deep</button>
+      </div>
+      <button id="launch-btn" class="launch-btn">Activate Research</button>
+    </div>
+  </div>
+
+  <!-- ═══ PROGRESS VIEW ═══ -->
+  <div id="view-progress" class="view">
+    <div class="header">
+      <h1>AC<span>BUDDY</span></h1>
+      <p>Researching...</p>
+    </div>
+    <div class="progress-center">
+      <div class="orbital">
+        <div class="orbital-ring"></div>
+        <div class="orbital-ring"></div>
+        <div class="orbital-ring"></div>
+      </div>
+      <div id="phase-text" class="phase-text">Starting...</div>
+      <div id="elapsed" class="elapsed">0:00</div>
+    </div>
+  </div>
+
+  <!-- ═══ RESULT VIEW ═══ -->
+  <div id="view-result" class="view">
+    <div class="header">
+      <h1>AC<span>BUDDY</span></h1>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div class="result-icon"><span class="material-icons-round" style="font-size:inherit;color:inherit">check_circle</span></div>
+      <div class="result-title">Research Complete</div>
+      <div id="result-query" class="result-sub"></div>
+      <a id="result-link" class="result-btn" href="#" target="_blank" rel="noopener">View Results</a>
+      <button class="result-btn outline" onclick="showView('home')">New Research</button>
+    </div>
+  </div>
+
+  <!-- ═══ ERROR VIEW ═══ -->
+  <div id="view-error" class="view">
+    <div class="header">
+      <h1>AC<span>BUDDY</span></h1>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center">
+      <div class="error-icon"><span class="material-icons-round" style="font-size:inherit;color:inherit">error</span></div>
+      <div class="result-title">Research Failed</div>
+      <div id="error-msg" class="result-sub"></div>
+      <button class="result-btn" onclick="retryResearch()">Retry</button>
+      <button class="result-btn outline" onclick="showView('home')">New Research</button>
+    </div>
+  </div>
+
+  <!-- ═══ ARCHIVE VIEW ═══ -->
+  <div id="view-archive" class="view">
+    <div class="header">
+      <h1>AC<span>BUDDY</span></h1>
+      <p>Past Research</p>
+    </div>
+    <div id="archive-list"></div>
+  </div>
+
+  <!-- ═══ BOTTOM NAV ═══ -->
+  <nav class="bottom-nav">
+    <button class="nav-item" data-view="archive">
+      <span class="material-icons-round">folder_open</span>Archive
+    </button>
+    <button class="nav-item active" data-view="home">
+      <span class="material-icons-round">search</span>Research
+    </button>
+    <button class="nav-item" data-view="settings">
+      <span class="material-icons-round">settings</span>Settings
+    </button>
+  </nav>
+</div>
+
+<script>
+(function(){
+  /* ── State ── */
+  let currentView = 'home';
+  let selectedDepth = 'STANDARD';
+  let currentJobId = null;
+  let pollTimer = null;
+  let elapsedTimer = null;
+  let startTime = null;
+  let lastQuery = '';
+
+  /* ── View Navigation ── */
+  window.showView = function(name) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    const el = document.getElementById('view-' + name);
+    if (el) el.classList.add('active');
+    currentView = name;
+
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const navBtn = document.querySelector(`.nav-item[data-view="${name}"]`);
+    if (navBtn) navBtn.classList.add('active');
+
+    if (name === 'archive') loadArchive();
+    if (name !== 'progress') stopPolling();
+  };
+
+  document.querySelectorAll('.nav-item').forEach(btn => {
+    btn.addEventListener('click', () => showView(btn.dataset.view));
+  });
+
+  /* ── Depth Selector ── */
+  document.querySelectorAll('.depth-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.depth-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedDepth = btn.dataset.depth;
+    });
+  });
+
+  /* ── Launch Research ── */
+  const launchBtn = document.getElementById('launch-btn');
+  const queryInput = document.getElementById('query-input');
+
+  launchBtn.addEventListener('click', async () => {
+    const query = queryInput.value.trim();
+    if (!query) return;
+
+    launchBtn.disabled = true;
+    lastQuery = query;
+
+    try {
+      const res = await fetch('/api/research', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ query, depth: selectedDepth })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+
+      currentJobId = data.job_id;
+      showView('progress');
+      startPolling();
+    } catch (e) {
+      alert('Failed to start research: ' + e.message);
+    } finally {
+      launchBtn.disabled = false;
+    }
+  });
+
+  /* ── Polling ── */
+  function startPolling() {
+    startTime = Date.now();
+    updateElapsed();
+    elapsedTimer = setInterval(updateElapsed, 1000);
+    poll();
+    pollTimer = setInterval(poll, 4000);
+  }
+
+  function stopPolling() {
+    clearInterval(pollTimer);
+    clearInterval(elapsedTimer);
+    pollTimer = null;
+    elapsedTimer = null;
+  }
+
+  function updateElapsed() {
+    if (!startTime) return;
+    const secs = Math.floor((Date.now() - startTime) / 1000);
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    document.getElementById('elapsed').textContent = m + ':' + String(s).padStart(2, '0');
+  }
+
+  async function poll() {
+    if (!currentJobId) return;
+    try {
+      const res = await fetch('/api/status/' + currentJobId);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      document.getElementById('phase-text').textContent = data.phase || 'Working...';
+
+      if (data.status === 'completed') {
+        stopPolling();
+        document.getElementById('result-query').textContent = data.query;
+        const link = document.getElementById('result-link');
+        if (data.result_url) {
+          link.href = data.result_url;
+          link.style.display = 'block';
+        } else {
+          link.style.display = 'none';
+        }
+        showView('result');
+      } else if (data.status === 'failed') {
+        stopPolling();
+        document.getElementById('error-msg').textContent = data.error || 'An unknown error occurred';
+        showView('error');
+      }
+    } catch (e) {
+      /* network blip — keep polling */
+    }
+  }
+
+  /* ── Retry ── */
+  window.retryResearch = function() {
+    queryInput.value = lastQuery;
+    showView('home');
+  };
+
+  /* ── Archive ── */
+  async function loadArchive() {
+    const container = document.getElementById('archive-list');
+    container.innerHTML = '<div class="loading-spinner"></div>';
+
+    try {
+      const res = await fetch('/api/archive');
+      const data = await res.json();
+      const results = data.results || [];
+
+      if (results.length === 0) {
+        container.innerHTML = '<div class="archive-empty"><span class="material-icons-round">science</span><p>No research yet</p></div>';
+        return;
+      }
+
+      container.innerHTML = results.map(r => {
+        const date = r.completed_at ? new Date(r.completed_at).toLocaleDateString('en-US', {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+        const studies = r.num_studies ? r.num_studies + ' studies' : '';
+        return `<div class="archive-card" onclick="window.open('${escapeAttr(r.result_url)}','_blank')">
+          <h3>${escapeHtml(r.query || 'Untitled')}</h3>
+          <div class="archive-meta">
+            <span class="tag">${escapeHtml(r.depth || '')}</span>
+            ${studies ? '<span>' + studies + '</span>' : ''}
+            ${date ? '<span>' + date + '</span>' : ''}
+          </div>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      container.innerHTML = '<div class="archive-empty"><span class="material-icons-round">cloud_off</span><p>Failed to load archive</p></div>';
+    }
+  }
+
+  function escapeHtml(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  function escapeAttr(s) {
+    return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  }
+})();
+</script>
+</body>
+</html>

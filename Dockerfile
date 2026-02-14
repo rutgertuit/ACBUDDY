@@ -29,6 +29,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 CMD ["gunicorn", "app.main:create_app()", \
      "--bind", "0.0.0.0:8080", \
-     "--workers", "2", \
-     "--threads", "4", \
+     "--workers", "1", \
+     "--threads", "8", \
      "--timeout", "3600"]
