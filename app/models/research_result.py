@@ -49,6 +49,9 @@ class ResearchResult:
     # Claim validation (populated by claim_validator after synthesis)
     claim_validation: dict = field(default_factory=dict)
 
+    # NotebookLM source URLs (individual MD files on GCS)
+    notebooklm_urls: list[dict] = field(default_factory=list)
+
     # Synthesis quality (populated by synthesis evaluator)
     synthesis_score: float = 0.0
     synthesis_scores: dict = field(default_factory=dict)

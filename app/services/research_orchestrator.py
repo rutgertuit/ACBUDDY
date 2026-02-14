@@ -370,6 +370,7 @@ def run_research_for_ui(
             # Upload results to GCS
             update_job(job_id, phase="Uploading results")
             result_url = ""
+            notebooklm_urls = []
             if settings.gcs_results_bucket:
                 result_url = gcs_client.publish_results_with_metadata(
                     result,
@@ -381,6 +382,21 @@ def run_research_for_ui(
                     phase_timings=timings,
                     research_stats={**final_stats, "human_hours": human_hours},
                 )
+
+                # Publish individual NotebookLM source files
+                try:
+                    notebooklm_urls = gcs_client.publish_notebooklm_sources(
+                        result, user_query, job_id, settings.gcs_results_bucket,
+                    )
+                    if notebooklm_urls:
+                        result.notebooklm_urls = notebooklm_urls
+                        gcs_client.update_metadata(
+                            job_id, settings.gcs_results_bucket,
+                            {"notebooklm_urls": notebooklm_urls},
+                        )
+                        logger.info("Published %d NotebookLM sources", len(notebooklm_urls))
+                except Exception:
+                    logger.exception("Failed to publish NotebookLM sources (non-fatal)")
 
             # Extract memories + entities in parallel (Feature 9: performance)
             # Skip for QUICK depth to save API calls
@@ -436,6 +452,7 @@ def run_research_for_ui(
                 phase="Complete",
                 result_url=result_url,
                 elevenlabs_doc_id=elevenlabs_doc_id,
+                notebooklm_urls=notebooklm_urls,
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
             logger.info("UI research complete: job=%s url=%s doc_id=%s timings=%s", job_id, result_url, elevenlabs_doc_id, timings)

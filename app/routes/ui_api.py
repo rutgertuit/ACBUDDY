@@ -207,6 +207,7 @@ def job_status(job_id: str):
         "phase_timings": job.phase_timings,
         "research_stats": job.research_stats,
         "parent_job_id": job.parent_job_id,
+        "notebooklm_urls": job.notebooklm_urls,
     })
 
 

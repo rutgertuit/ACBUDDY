@@ -359,6 +359,93 @@ def publish_results_with_metadata(
     return result_url
 
 
+def _slugify(text: str, max_len: int = 60) -> str:
+    """Convert text to a URL-friendly slug."""
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower().strip())
+    slug = slug.strip("-")
+    return slug[:max_len].rstrip("-")
+
+
+def publish_notebooklm_sources(
+    result: ResearchResult,
+    query: str,
+    job_id: str,
+    bucket_name: str,
+) -> list[dict]:
+    """Upload individual research documents as Markdown files for NotebookLM.
+
+    Each component (master synthesis, studies, Q&A, strategic analysis) becomes
+    a separate .md file in GCS under notebooklm/{job_id}/.
+
+    Returns list of dicts: [{"label": "...", "url": "https://..."}]
+    """
+    if not bucket_name:
+        return []
+
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+    except Exception:
+        logger.exception("Failed to init GCS client for NotebookLM sources")
+        return []
+
+    prefix = f"notebooklm/{job_id}"
+    sources: list[dict] = []
+
+    def _upload_md(filename: str, label: str, content: str):
+        if not content or not content.strip():
+            return
+        try:
+            blob = bucket.blob(f"{prefix}/{filename}")
+            blob.upload_from_string(content, content_type="text/markdown")
+            url = f"https://storage.googleapis.com/{bucket_name}/{prefix}/{filename}"
+            sources.append({"label": label, "url": url})
+        except Exception:
+            logger.warning("Failed to upload NotebookLM source: %s", filename)
+
+    # Master synthesis
+    if result.master_synthesis:
+        md = f"# Executive Briefing: {query}\n\n{result.master_synthesis}"
+        _upload_md("00-executive-briefing.md", "Executive Briefing", md)
+
+    # Strategic analysis
+    if result.strategic_analysis:
+        md = f"# Strategic Analysis: {query}\n\n{result.strategic_analysis}"
+        _upload_md("01-strategic-analysis.md", "Strategic Analysis", md)
+
+    # Individual studies
+    if result.studies:
+        for i, study in enumerate(result.studies, 1):
+            if not study.synthesis:
+                continue
+            slug = _slugify(study.title)
+            md = f"# Study {i}: {study.title}\n\n{study.synthesis}"
+            _upload_md(f"study-{i:02d}-{slug}.md", f"Study {i}: {study.title[:60]}", md)
+
+    # Q&A clusters
+    for i, cluster in enumerate(result.qa_clusters, 1):
+        if not cluster.findings:
+            continue
+        slug = _slugify(cluster.theme)
+        md = f"# Q&A: {cluster.theme}\n\n{cluster.findings}"
+        _upload_md(f"qa-{i:02d}-{slug}.md", f"Q&A: {cluster.theme[:60]}", md)
+
+    # Q&A summary
+    if result.qa_summary:
+        md = f"# Anticipated Q&A Summary: {query}\n\n{result.qa_summary}"
+        _upload_md("qa-summary.md", "Q&A Summary", md)
+
+    # QUICK/STANDARD — single synthesis
+    if result.final_synthesis and not result.master_synthesis:
+        md = f"# Research Synthesis: {query}\n\n{result.final_synthesis}"
+        _upload_md("synthesis.md", "Research Synthesis", md)
+
+    logger.info("Published %d NotebookLM sources for job %s", len(sources), job_id)
+    return sources
+
+
 def delete_result(job_id: str, bucket_name: str) -> bool:
     """Delete HTML + metadata JSON from GCS. Returns True if anything was deleted."""
     if not bucket_name:
@@ -375,6 +462,12 @@ def delete_result(job_id: str, bucket_name: str) -> bool:
                 blob.delete()
                 deleted = True
                 logger.info("Deleted GCS blob: results/%s%s", job_id, suffix)
+        # Also delete NotebookLM source files
+        nb_blobs = list(bucket.list_blobs(prefix=f"notebooklm/{job_id}/"))
+        for blob in nb_blobs:
+            blob.delete()
+            deleted = True
+            logger.info("Deleted GCS blob: %s", blob.name)
         return deleted
     except Exception:
         logger.exception("Failed to delete result blobs for job %s", job_id)

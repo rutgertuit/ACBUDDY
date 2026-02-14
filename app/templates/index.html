@@ -409,6 +409,17 @@ tailwind.config = {
         </button>
       </div>
 
+      <!-- NotebookLM Sources (collapsible) -->
+      <div id="notebooklm-section" class="w-full hidden">
+        <button onclick="document.getElementById('notebooklm-list').classList.toggle('hidden');this.querySelector('.expand-icon').textContent=document.getElementById('notebooklm-list').classList.contains('hidden')?'expand_more':'expand_less'"
+                class="flex items-center gap-1.5 mx-auto text-[11px] text-slate-500 hover:text-primary transition-colors font-medium">
+          <span class="material-icons text-sm">auto_stories</span>
+          <span>NotebookLM Sources</span>
+          <span class="material-icons text-sm expand-icon">expand_more</span>
+        </button>
+        <div id="notebooklm-list" class="hidden mt-2 space-y-1"></div>
+      </div>
+
       <!-- Agent chat cards (primary action) -->
       <div class="w-full mt-4 space-y-2">
         <p class="text-[10px] uppercase tracking-widest text-slate-400 text-center mb-2">Chat about this research</p>
@@ -1008,6 +1019,7 @@ const App = (function() {
             if (data.result_url) { link.href = data.result_url; link.style.display = 'block'; }
             else { link.style.display = 'none'; }
             renderResultAgents();
+            renderNotebookLmSources(data.notebooklm_urls || []);
             setTimeout(() => showView('result'), 600);
           }
           removeActiveJob(jobId);
@@ -1496,6 +1508,7 @@ const App = (function() {
           <div class="flex items-center gap-3">
             ${docId ? `<button onclick="App.archiveChat('${esc(docId)}','${esc((r.query||'').substring(0,60))}')" class="text-[11px] text-primary font-medium flex items-center gap-1 hover:underline"><span class="material-icons text-sm">chat</span>Chat about this</button>` : ''}
             ${r.result_url ? `<button onclick="navigator.clipboard.writeText('${esc(r.result_url)}');this.querySelector('.material-icons').textContent='check';setTimeout(()=>this.querySelector('.material-icons').textContent='content_copy',1500)" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-primary transition-colors"><span class="material-icons text-sm">content_copy</span>Copy URL</button>` : ''}
+            ${(r.notebooklm_urls||[]).length ? `<button onclick="navigator.clipboard.writeText('${esc((r.notebooklm_urls||[]).map(u=>u.url).join('\\n'))}');this.querySelector('.material-icons').textContent='check';setTimeout(()=>this.querySelector('.material-icons').textContent='auto_stories',1500)" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-primary transition-colors"><span class="material-icons text-sm">auto_stories</span>${(r.notebooklm_urls||[]).length} sources</button>` : ''}
             <button onclick="App.amendResearch('${esc(r.job_id)}','${esc((r.query||'').substring(0,120))}')" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-amber-500 transition-colors"><span class="material-icons text-sm">edit</span>Amend</button>
             <button onclick="App.deleteResearch('${esc(r.job_id)}')" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-red-500 transition-colors ml-auto"><span class="material-icons text-sm">delete_forever</span></button>
           </div>
@@ -1596,6 +1609,43 @@ const App = (function() {
       btn.classList.add('text-emerald-500', 'border-emerald-300');
       setTimeout(() => { icon.textContent = 'content_copy'; btn.classList.remove('text-emerald-500', 'border-emerald-300'); }, 2000);
     }).catch(() => prompt('Copy this URL:', url));
+  }
+
+  function renderNotebookLmSources(urls) {
+    const section = document.getElementById('notebooklm-section');
+    const list = document.getElementById('notebooklm-list');
+    if (!urls || !urls.length) { section.classList.add('hidden'); return; }
+    section.classList.remove('hidden');
+    list.classList.add('hidden'); // start collapsed
+    list.innerHTML = urls.map(s => `
+      <div class="flex items-center gap-2 py-1.5 px-3 rounded-lg bg-white/50 border border-white/60">
+        <span class="material-icons text-sm text-primary/60">description</span>
+        <span class="flex-1 text-[11px] text-slate-600 truncate">${esc(s.label)}</span>
+        <button onclick="navigator.clipboard.writeText('${esc(s.url)}');this.querySelector('.material-icons').textContent='check';setTimeout(()=>this.querySelector('.material-icons').textContent='content_copy',1500)"
+                class="flex items-center gap-0.5 text-[10px] text-slate-400 hover:text-primary transition-colors" title="Copy URL">
+          <span class="material-icons text-xs">content_copy</span>
+        </button>
+      </div>
+    `).join('') + `
+      <button onclick="copyAllNotebookLmUrls()" class="w-full mt-1 py-2 rounded-lg border border-dashed border-slate-200 text-[11px] text-slate-400 hover:text-primary hover:border-primary transition-colors flex items-center justify-center gap-1">
+        <span class="material-icons text-sm">copy_all</span> Copy all URLs
+      </button>`;
+  }
+
+  function copyAllNotebookLmUrls() {
+    const items = document.querySelectorAll('#notebooklm-list .truncate');
+    const section = document.getElementById('notebooklm-section');
+    // Collect URLs from the copy buttons' onclick handlers
+    const urls = [];
+    document.querySelectorAll('#notebooklm-list button[title="Copy URL"]').forEach(btn => {
+      const match = btn.getAttribute('onclick').match(/writeText\('([^']+)'\)/);
+      if (match) urls.push(match[1]);
+    });
+    if (!urls.length) return;
+    navigator.clipboard.writeText(urls.join('\n')).then(() => {
+      const copyBtn = document.querySelector('#notebooklm-list button:last-child');
+      if (copyBtn) { copyBtn.innerHTML = '<span class="material-icons text-sm text-emerald-500">check</span> Copied!'; setTimeout(() => { copyBtn.innerHTML = '<span class="material-icons text-sm">copy_all</span> Copy all URLs'; }, 2000); }
+    });
   }
 
   /* ── Watches ── */

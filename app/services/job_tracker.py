@@ -37,6 +37,8 @@ class JobInfo:
     phase_timings: dict = field(default_factory=dict)
     # Research stats: {web_searches, pages_read, ...}
     research_stats: dict = field(default_factory=dict)
+    # NotebookLM individual source URLs
+    notebooklm_urls: list = field(default_factory=list)
     _last_phase_key: str = ""
 
 
