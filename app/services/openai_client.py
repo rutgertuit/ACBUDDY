@@ -2,12 +2,49 @@
 
 import logging
 import os
+import time
 
 import requests
 
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.openai.com/v1/chat/completions"
+
+# Retry config: 3 attempts with exponential backoff (2s, 4s)
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = [2, 4]
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
+
+def _post_with_retry(headers: dict, body: dict, timeout: int) -> requests.Response:
+    """POST to OpenAI with retry + exponential backoff for transient errors."""
+    last_exc = None
+    for attempt in range(_MAX_RETRIES):
+        try:
+            resp = requests.post(
+                BASE_URL, headers=headers, json=body, timeout=timeout,
+            )
+            if resp.status_code not in _RETRYABLE_STATUS:
+                return resp
+            # Retryable HTTP status
+            wait = _RETRY_BACKOFF[attempt] if attempt < len(_RETRY_BACKOFF) else _RETRY_BACKOFF[-1]
+            logger.warning(
+                "OpenAI %d on attempt %d/%d, retrying in %ds",
+                resp.status_code, attempt + 1, _MAX_RETRIES, wait,
+            )
+            time.sleep(wait)
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            last_exc = e
+            wait = _RETRY_BACKOFF[attempt] if attempt < len(_RETRY_BACKOFF) else _RETRY_BACKOFF[-1]
+            logger.warning(
+                "OpenAI connection error on attempt %d/%d: %s, retrying in %ds",
+                attempt + 1, _MAX_RETRIES, e, wait,
+            )
+            time.sleep(wait)
+    # Final attempt or re-raise
+    if last_exc:
+        raise last_exc
+    return resp  # Last response with retryable status — let caller handle
 
 
 def deep_reason(
@@ -53,19 +90,16 @@ def deep_reason(
             "content": question,
         })
 
-        resp = requests.post(
-            BASE_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model,
-                "messages": messages,
-                "max_tokens": 4000,
-            },
-            timeout=60,
-        )
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": 4000,
+        }
+        resp = _post_with_retry(headers, body, timeout=60)
         resp.raise_for_status()
         data = resp.json()
 
@@ -131,15 +165,11 @@ def complete(
         else:
             body["max_tokens"] = max_tokens
 
-        resp = requests.post(
-            BASE_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-            timeout=timeout,
-        )
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        resp = _post_with_retry(headers, body, timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
 
