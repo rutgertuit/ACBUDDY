@@ -320,8 +320,12 @@ def timing_estimates():
 
 @ui_api_bp.route("/api/agents")
 def list_agents():
-    """List the 3 agents with their KB doc names (cached)."""
+    """List the 3 agents with their KB doc names (cached).
+
+    Pass ?fresh=1 to bypass the cache (e.g. after research completes).
+    """
     settings = current_app.config["SETTINGS"]
+    skip_cache = request.args.get("fresh") == "1"
 
     agents_out = []
     for slug, profile in AGENTS.items():
@@ -330,6 +334,8 @@ def list_agents():
 
         if agent_id:
             cache_key = f"kb_docs_{slug}"
+            if skip_cache:
+                _cache.pop(cache_key, None)
             cached = _cached(cache_key)
             if cached is not None:
                 kb_docs = cached
