@@ -82,6 +82,8 @@ async def execute_deep_research(
     max_qa_rounds: int = 2,
     on_progress=None,
     business_context: dict | None = None,
+    gcs_bucket: str = "",
+    job_id: str = "",
 ) -> ResearchResult:
     """Execute the full DEEP multi-study research pipeline.
 
@@ -103,61 +105,98 @@ async def execute_deep_research(
             except Exception:
                 pass
 
-    result = ResearchResult(original_query=query)
+    # Checkpoint helper — saves result state to GCS after each major phase
+    def _checkpoint(result, phase):
+        if gcs_bucket and job_id:
+            try:
+                from app.services import gcs_client
+                data = result.to_dict()
+                data["_checkpoint_phase"] = phase
+                gcs_client.save_checkpoint(data, job_id, gcs_bucket)
+            except Exception:
+                logger.warning("Failed to save checkpoint at phase %s", phase)
+
+    # Load checkpoint if resuming
+    checkpoint_data = None
+    if gcs_bucket and job_id:
+        try:
+            from app.services import gcs_client
+            checkpoint_data = gcs_client.load_checkpoint(job_id, gcs_bucket)
+        except Exception:
+            logger.warning("Failed to load checkpoint for job %s", job_id)
+
+    if checkpoint_data:
+        clean_data = {k: v for k, v in checkpoint_data.items() if not k.startswith("_")}
+        result = ResearchResult.from_dict(clean_data)
+        logger.info("Resumed from checkpoint phase: %s", checkpoint_data.get("_checkpoint_phase", "?"))
+    else:
+        result = ResearchResult(original_query=query)
+
     session_service = InMemorySessionService()
 
     # ---- Phase 0: Query Analysis ----
-    _progress("Analyzing query", step="analysis")
-    logger.info("DEEP Phase 0: Analyzing query: %s", query[:100])
-    query_analysis = await analyze_query(query, context)
-    result.query_analysis = query_analysis
-    logger.info("DEEP Phase 0 complete: domains=%s, complexity=%s",
-                query_analysis.get("domains"), query_analysis.get("complexity"))
+    if result.query_analysis:
+        query_analysis = result.query_analysis
+        logger.info("DEEP Phase 0: Skipped (restored from checkpoint)")
+    else:
+        _progress("Analyzing query", step="analysis")
+        logger.info("DEEP Phase 0: Analyzing query: %s", query[:100])
+        query_analysis = await analyze_query(query, context)
+        result.query_analysis = query_analysis
+        _checkpoint(result, "analysis")
+        logger.info("DEEP Phase 0 complete: domains=%s, complexity=%s",
+                    query_analysis.get("domains"), query_analysis.get("complexity"))
 
     # ---- Phase 1: Study Planning ----
-    _progress("planning", step="planning")
-    logger.info("DEEP Phase 1: Planning studies for query: %s", query[:100])
+    if result.study_plan:
+        studies = result.study_plan
+        logger.info("DEEP Phase 1: Skipped (restored from checkpoint, %d studies)", len(studies))
+    else:
+        _progress("planning", step="planning")
+        logger.info("DEEP Phase 1: Planning studies for query: %s", query[:100])
 
-    planner = build_study_planner(model=MODEL)
-    planner_runner = Runner(
-        agent=planner,
-        app_name=APP_NAME,
-        session_service=session_service,
-    )
+        planner = build_study_planner(model=MODEL)
+        planner_runner = Runner(
+            agent=planner,
+            app_name=APP_NAME,
+            session_service=session_service,
+        )
 
-    prompt = f"Research query: {query}"
-    if context:
-        prompt = f"Conversation context:\n{context}\n\nResearch query: {query}"
+        prompt = f"Research query: {query}"
+        if context:
+            prompt = f"Conversation context:\n{context}\n\nResearch query: {query}"
 
-    # Inject query analysis into planning prompt
-    qa_domains = query_analysis.get("domains", [])
-    qa_complexity = query_analysis.get("complexity", "medium")
-    if qa_domains:
-        prompt += f"\n\nQuery analysis suggests domains: {', '.join(qa_domains)}, complexity: {qa_complexity}. Plan studies accordingly."
-    if context and "Relevant findings from past research" in context:
-        prompt += "\nPrior research findings are available (see context). Focus studies on areas NOT already covered, or on updating stale findings."
+        # Inject query analysis into planning prompt
+        qa_domains = query_analysis.get("domains", [])
+        qa_complexity = query_analysis.get("complexity", "medium")
+        if qa_domains:
+            prompt += f"\n\nQuery analysis suggests domains: {', '.join(qa_domains)}, complexity: {qa_complexity}. Plan studies accordingly."
+        if context and "Relevant findings from past research" in context:
+            prompt += "\nPrior research findings are available (see context). Focus studies on areas NOT already covered, or on updating stale findings."
 
-    session = session_service.create_session(app_name=APP_NAME, user_id="system")
-    content = types.Content(role="user", parts=[types.Part(text=prompt)])
+        session = session_service.create_session(app_name=APP_NAME, user_id="system")
+        content = types.Content(role="user", parts=[types.Part(text=prompt)])
 
-    plan_text = ""
-    async for event in planner_runner.run_async(
-        user_id="system", session_id=session.id, new_message=content
-    ):
-        if event.is_final_response() and event.content and event.content.parts:
-            plan_text = event.content.parts[0].text
-            break
+        plan_text = ""
+        async for event in planner_runner.run_async(
+            user_id="system", session_id=session.id, new_message=content
+        ):
+            if event.is_final_response() and event.content and event.content.parts:
+                plan_text = event.content.parts[0].text
+                break
 
-    # Parse study plan (robust: handles markdown fences, preamble)
-    studies = parse_json_response(plan_text)
-    if not isinstance(studies, list) or not studies:
-        logger.warning("Failed to parse study plan, using single study fallback")
-        studies = [{"title": query, "angle": "General research", "questions": [query]}]
+        # Parse study plan (robust: handles markdown fences, preamble)
+        studies = parse_json_response(plan_text)
+        if not isinstance(studies, list) or not studies:
+            logger.warning("Failed to parse study plan, using single study fallback")
+            studies = [{"title": query, "angle": "General research", "questions": [query]}]
 
-    if max_studies > 0:
-        studies = studies[:max_studies]
-    result.study_plan = studies
-    logger.info("DEEP Phase 1 complete: %d studies planned", len(studies))
+        if max_studies > 0:
+            studies = studies[:max_studies]
+        result.study_plan = studies
+        _checkpoint(result, "planning")
+        logger.info("DEEP Phase 1 complete: %d studies planned", len(studies))
+
     _progress(
         f"Planned {len(studies)} studies",
         step="studies",
@@ -166,80 +205,99 @@ async def execute_deep_research(
     )
 
     # ---- Phase 2 & 3: Parallel Iterative Studies ----
-    logger.info("DEEP Phase 2: Running %d iterative studies (max concurrent: %d)", len(studies), MAX_CONCURRENT_STUDIES)
+    # Skip if studies already have syntheses (checkpoint resume)
+    _has_completed_studies = any(s.synthesis for s in result.studies) if result.studies else False
+    if _has_completed_studies:
+        successful_studies = [s for s in result.studies if s.synthesis]
+        logger.info("DEEP Phase 2-3: Skipped (restored %d/%d studies from checkpoint)", len(successful_studies), len(result.studies))
+    else:
+        logger.info("DEEP Phase 2: Running %d iterative studies (max concurrent: %d)", len(studies), MAX_CONCURRENT_STUDIES)
 
-    sem = asyncio.Semaphore(MAX_CONCURRENT_STUDIES)
+        sem = asyncio.Semaphore(MAX_CONCURRENT_STUDIES)
 
-    async def _study_with_sem(idx, study_dict):
-        async with sem:
-            title = study_dict.get("title", f"Study {idx}")
-            role = study_dict.get("recommended_role", "general")
-            domain = study_dict.get("domain", "")
-            # Use query analysis to default to domain expert if no role specified
-            if role == "general" and query_analysis.get("domain_for_expert"):
-                role = "domain_expert"
-                domain = domain or query_analysis["domain_for_expert"]
-            _progress(f"Researching: {title}", step=f"study_{idx}",
-                      study_idx=idx, study_status="running")
-            try:
-                # Route complex studies to Gemini Deep Research
-                use_deep = should_use_deep_research(study_dict, query_analysis)
-                if use_deep:
-                    sr = await _run_deep_research_study(idx, study_dict)
-                    if sr.synthesis:
-                        _progress(f"Completed: {title}", step=f"study_{idx}",
-                                  study_idx=idx, study_status="done")
-                        return sr
-                    # Fall through to iterative if deep research fails
-                    logger.warning("Deep Research failed for study %d, falling back to iterative", idx)
+        async def _study_with_sem(idx, study_dict):
+            async with sem:
+                title = study_dict.get("title", f"Study {idx}")
+                role = study_dict.get("recommended_role", "general")
+                domain = study_dict.get("domain", "")
+                # Use query analysis to default to domain expert if no role specified
+                if role == "general" and query_analysis.get("domain_for_expert"):
+                    role = "domain_expert"
+                    domain = domain or query_analysis["domain_for_expert"]
+                _progress(f"Researching: {title}", step=f"study_{idx}",
+                          study_idx=idx, study_status="running")
+                try:
+                    # Route complex studies to Gemini Deep Research
+                    use_deep = should_use_deep_research(study_dict, query_analysis)
+                    if use_deep:
+                        sr = await _run_deep_research_study(idx, study_dict)
+                        if sr.synthesis:
+                            _progress(f"Completed: {title}", step=f"study_{idx}",
+                                      study_idx=idx, study_status="done")
+                            return sr
+                        # Fall through to iterative if deep research fails
+                        logger.warning("Deep Research failed for study %d, falling back to iterative", idx)
 
-                # Select researcher builder based on role
-                researcher_builder = None
-                if role == "domain_expert" and domain:
-                    try:
-                        from app.agents.specialized_roles import build_domain_expert
-                        researcher_builder = lambda i, m, p: build_domain_expert(i, domain, m, p)
-                    except Exception:
-                        pass  # fall back to default
+                    # Select researcher builder based on role
+                    researcher_builder = None
+                    if role == "domain_expert" and domain:
+                        try:
+                            from app.agents.specialized_roles import build_domain_expert
+                            researcher_builder = lambda i, m, p: build_domain_expert(i, domain, m, p)
+                        except Exception:
+                            pass  # fall back to default
 
-                sr = await run_iterative_study(
-                    study_index=idx,
-                    study=study_dict,
-                    session_service=InMemorySessionService(),
-                    model=MODEL,
-                    max_rounds=max_rounds_per_study,
-                    researcher_builder=researcher_builder,
-                )
-                _progress(f"Completed: {title}", step=f"study_{idx}",
-                          study_idx=idx, study_status="done")
-                return sr
-            except Exception:
-                logger.exception("Study %d '%s' failed", idx, study_dict.get("title", ""))
-                _progress(f"Failed: {title}", step=f"study_{idx}",
-                          study_idx=idx, study_status="failed")
-                return StudyResult(title=title, angle=study_dict.get("angle", ""))
+                    sr = await run_iterative_study(
+                        study_index=idx,
+                        study=study_dict,
+                        session_service=InMemorySessionService(),
+                        model=MODEL,
+                        max_rounds=max_rounds_per_study,
+                        researcher_builder=researcher_builder,
+                    )
+                    _progress(f"Completed: {title}", step=f"study_{idx}",
+                              study_idx=idx, study_status="done")
+                    return sr
+                except Exception:
+                    logger.exception("Study %d '%s' failed", idx, study_dict.get("title", ""))
+                    _progress(f"Failed: {title}", step=f"study_{idx}",
+                              study_idx=idx, study_status="failed")
+                    return StudyResult(title=title, angle=study_dict.get("angle", ""))
 
-    study_tasks = [_study_with_sem(i, s) for i, s in enumerate(studies)]
-    study_results = await asyncio.gather(*study_tasks)
-    result.studies = list(study_results)
+        study_tasks = [_study_with_sem(i, s) for i, s in enumerate(studies)]
+        study_results = await asyncio.gather(*study_tasks)
+        result.studies = list(study_results)
 
-    successful_studies = [s for s in result.studies if s.synthesis]
-    logger.info("DEEP Phase 2-3 complete: %d/%d studies produced synthesis", len(successful_studies), len(result.studies))
+        successful_studies = [s for s in result.studies if s.synthesis]
+        _checkpoint(result, "studies")
+        logger.info("DEEP Phase 2-3 complete: %d/%d studies produced synthesis", len(successful_studies), len(result.studies))
 
     if not successful_studies:
         logger.error("No studies produced synthesis, aborting DEEP pipeline")
         return result
 
     # ---- Phase 4: Master Synthesis ----
-    _progress(f"Synthesizing {len(successful_studies)} studies", step="synthesis")
-    logger.info("DEEP Phase 4: Master synthesis from %d studies", len(successful_studies))
+    # Build master_state and study_refs (needed by later phases even on resume)
+    master_state = {}
+    for i, s in enumerate(result.studies):
+        if s.synthesis:
+            master_state[f"study_{i}_synthesis"] = s.synthesis
 
     study_refs = "\n".join(
         f"- Study {i+1} '{s.title}': {{study_{i}_synthesis}}"
         for i, s in enumerate(result.studies) if s.synthesis
     )
 
-    master_instruction = f"""You are an executive research synthesizer. Combine the following
+    # Route master synthesis: OpenAI for deep reasoning, Gemini for fallback
+    provider, synth_model = get_model_for_phase("master_synthesis")
+
+    if result.master_synthesis:
+        logger.info("DEEP Phase 4: Skipped (restored from checkpoint, %d chars)", len(result.master_synthesis))
+    else:
+        _progress(f"Synthesizing {len(successful_studies)} studies", step="synthesis")
+        logger.info("DEEP Phase 4: Master synthesis from %d studies", len(successful_studies))
+
+        master_instruction = f"""You are an executive research synthesizer. Combine the following
 independent study findings into a single executive briefing.
 
 Available study syntheses:
@@ -295,72 +353,68 @@ agree [HIGH CONFIDENCE] vs. where only one study covers a topic [MEDIUM/LOW].)
 
 Be comprehensive, cite sources, highlight cross-study patterns."""
 
-    # Load all study syntheses into state
-    master_state = {}
-    for i, s in enumerate(result.studies):
-        if s.synthesis:
-            master_state[f"study_{i}_synthesis"] = s.synthesis
+        logger.info("Master synthesis routing: provider=%s, model=%s", provider, synth_model)
 
-    # Route master synthesis: OpenAI for deep reasoning, Gemini for fallback
-    provider, synth_model = get_model_for_phase("master_synthesis")
-    logger.info("Master synthesis routing: provider=%s, model=%s", provider, synth_model)
+        if provider == "openai":
+            # Resolve template variables for direct OpenAI API call
+            resolved_instruction = master_instruction
+            for key, value in master_state.items():
+                resolved_instruction = resolved_instruction.replace(f"{{{key}}}", value)
 
-    if provider == "openai":
-        # Resolve template variables for direct OpenAI API call
-        resolved_instruction = master_instruction
-        for key, value in master_state.items():
-            resolved_instruction = resolved_instruction.replace(f"{{{key}}}", value)
-
-        loop = asyncio.get_running_loop()
-        result.master_synthesis = await loop.run_in_executor(None, lambda: openai_svc.complete(
-            system_prompt=resolved_instruction,
-            user_prompt=f"Create an executive briefing for: {query}",
-            model=synth_model,
-            max_tokens=12000,
-            timeout=180,
-        ))
-    else:
-        master_agent = LlmAgent(
-            name="master_synthesizer",
-            model=synth_model,
-            instruction=master_instruction,
-            output_key="master_synthesis",
-        )
-        master_runner = Runner(
-            agent=master_agent,
-            app_name=APP_NAME,
-            session_service=session_service,
-        )
-        master_session = session_service.create_session(
-            app_name=APP_NAME, user_id="system", state=master_state
-        )
-        master_content = types.Content(
-            role="user",
-            parts=[types.Part(text=f"Create an executive briefing for: {query}")],
-        )
-        async for event in master_runner.run_async(
-            user_id="system", session_id=master_session.id, new_message=master_content
-        ):
-            if event.is_final_response() and event.content and event.content.parts:
-                result.master_synthesis = event.content.parts[0].text
-
-        if not result.master_synthesis:
-            master_session = session_service.get_session(
-                app_name=APP_NAME, user_id="system", session_id=master_session.id
+            loop = asyncio.get_running_loop()
+            result.master_synthesis = await loop.run_in_executor(None, lambda: openai_svc.complete(
+                system_prompt=resolved_instruction,
+                user_prompt=f"Create an executive briefing for: {query}",
+                model=synth_model,
+                max_tokens=12000,
+                timeout=180,
+            ))
+        else:
+            master_agent = LlmAgent(
+                name="master_synthesizer",
+                model=synth_model,
+                instruction=master_instruction,
+                output_key="master_synthesis",
             )
-            if master_session and "master_synthesis" in master_session.state:
-                result.master_synthesis = master_session.state["master_synthesis"]
+            master_runner = Runner(
+                agent=master_agent,
+                app_name=APP_NAME,
+                session_service=session_service,
+            )
+            master_session = session_service.create_session(
+                app_name=APP_NAME, user_id="system", state=master_state
+            )
+            master_content = types.Content(
+                role="user",
+                parts=[types.Part(text=f"Create an executive briefing for: {query}")],
+            )
+            async for event in master_runner.run_async(
+                user_id="system", session_id=master_session.id, new_message=master_content
+            ):
+                if event.is_final_response() and event.content and event.content.parts:
+                    result.master_synthesis = event.content.parts[0].text
 
-    logger.info("DEEP Phase 4 complete: master synthesis %d chars", len(result.master_synthesis))
+            if not result.master_synthesis:
+                master_session = session_service.get_session(
+                    app_name=APP_NAME, user_id="system", session_id=master_session.id
+                )
+                if master_session and "master_synthesis" in master_session.state:
+                    result.master_synthesis = master_session.state["master_synthesis"]
+
+        _checkpoint(result, "synthesis")
+        logger.info("DEEP Phase 4 complete: master synthesis %d chars", len(result.master_synthesis))
 
     # ---- Phase 4a: Claim Validation (contradiction detection) ----
-    claim_validation = {}
-    if result.master_synthesis:
+    claim_validation = result.claim_validation or {}
+    if claim_validation:
+        logger.info("DEEP Phase 4a: Skipped (restored from checkpoint)")
+    elif result.master_synthesis:
         _progress("Validating claims", step="claim_validation")
         logger.info("DEEP Phase 4a: Cross-source claim validation")
         try:
             claim_validation = await validate_claims(result.master_synthesis)
             result.claim_validation = claim_validation
+            _checkpoint(result, "validation")
             logger.info(
                 "Claim validation: %d contradictions, consistency=%s",
                 len(claim_validation.get("contradictions", [])),
@@ -370,7 +424,9 @@ Be comprehensive, cite sources, highlight cross-study patterns."""
             logger.exception("Claim validation failed (non-fatal)")
 
     # ---- Phase 4b: Synthesis Evaluation & Refinement ----
-    if result.master_synthesis:
+    if result.synthesis_score > 0:
+        logger.info("DEEP Phase 4b: Skipped (restored from checkpoint, score=%.1f)", result.synthesis_score)
+    elif result.master_synthesis:
         max_refinement_rounds = 2
         for refine_round in range(max_refinement_rounds):
             _progress(f"Evaluating quality (round {refine_round + 1})", step="evaluation")
@@ -636,6 +692,7 @@ Be comprehensive. Mark any remaining areas of uncertainty explicitly."""
             else:
                 logger.warning("Refinement produced empty result, keeping previous synthesis")
                 break
+        _checkpoint(result, "refinement")
 
     # ---- Phase 4d: Enhanced Verification ----
     # Trigger when: score < 7.5 OR query analysis says fact-checking needed
@@ -743,7 +800,9 @@ Format as: # Executive Research Briefing: {query}
             logger.exception("Enhanced verification failed, continuing with existing synthesis")
 
     # ---- Phase 4c: Strategic Analysis ----
-    if result.master_synthesis:
+    if result.strategic_analysis:
+        logger.info("DEEP Phase 4c: Skipped (restored from checkpoint, %d chars)", len(result.strategic_analysis))
+    elif result.master_synthesis:
         _progress("Applying strategic frameworks", step="strategic_analysis")
         logger.info("DEEP Phase 4c: Strategic analysis")
         try:
@@ -752,6 +811,7 @@ Format as: # Executive Research Briefing: {query}
                 master_synthesis=result.master_synthesis,
                 model=MODEL,
             )
+            _checkpoint(result, "strategic")
             logger.info(
                 "DEEP Phase 4c complete: strategic analysis %d chars",
                 len(result.strategic_analysis),
@@ -779,6 +839,20 @@ Format as: # Executive Research Briefing: {query}
     # ---- Phase 5: Anticipatory Q&A Research ----
     if not result.master_synthesis:
         logger.warning("No master synthesis, skipping Q&A phase")
+        return result
+
+    # Skip if Q&A already completed (checkpoint resume)
+    _has_qa = any(c.findings for c in result.qa_clusters) if result.qa_clusters else False
+    if _has_qa:
+        successful_qa = [c for c in result.qa_clusters if c.findings]
+        logger.info("DEEP Phase 5: Skipped (restored %d Q&A clusters from checkpoint)", len(successful_qa))
+        # Delete checkpoint on successful completion
+        if gcs_bucket and job_id:
+            try:
+                from app.services import gcs_client
+                gcs_client.delete_checkpoint(job_id, gcs_bucket)
+            except Exception:
+                pass
         return result
 
     _progress("Generating anticipated Q&A", step="qa")
@@ -948,4 +1022,13 @@ Format as:
         len(successful_qa),
         len(result.qa_summary),
     )
+
+    # Delete checkpoint on successful completion
+    if gcs_bucket and job_id:
+        try:
+            from app.services import gcs_client
+            gcs_client.delete_checkpoint(job_id, gcs_bucket)
+        except Exception:
+            pass
+
     return result

@@ -110,6 +110,21 @@ def finalize_timings(job_id: str) -> dict:
         return dict(job.phase_timings)
 
 
+def recreate_job(job_id: str, query: str, depth: str) -> JobInfo:
+    """Recreate an in-memory JobInfo for resumption after process restart.
+
+    If the job already exists in memory, returns it as-is.
+    Otherwise creates a new entry with the given id/query/depth.
+    """
+    with _lock:
+        existing = _jobs.get(job_id)
+        if existing:
+            return existing
+        job = JobInfo(job_id=job_id, query=query, depth=depth)
+        _jobs[job_id] = job
+        return job
+
+
 def count_active_jobs() -> int:
     """Return the number of jobs currently in PENDING or RUNNING status."""
     with _lock:

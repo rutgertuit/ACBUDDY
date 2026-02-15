@@ -484,6 +484,7 @@ tailwind.config = {
       <span class="material-icons text-6xl text-red-400">error</span>
       <div class="text-lg font-semibold text-slate-700">Research Failed</div>
       <div id="error-msg" class="text-sm text-slate-400 text-center px-4"></div>
+      <button id="resume-btn" onclick="App.resumeResearch()" class="w-full py-3 rounded-xl bg-emerald-500 text-white text-center font-semibold text-sm hidden">Resume from Checkpoint</button>
       <button onclick="App.retry()" class="w-full py-3 rounded-xl bg-primary text-white text-center font-semibold text-sm">Retry</button>
       <button onclick="App.showView('home')" class="w-full py-3 rounded-xl border border-slate-200 text-slate-500 text-center font-medium text-sm">New Research</button>
     </div>
@@ -1052,6 +1053,14 @@ const App = (function() {
         } else if (data.status === 'failed') {
           if (jobId === viewingJobId && currentView === 'progress') {
             document.getElementById('error-msg').textContent = data.error || 'An unknown error occurred';
+            // Show resume button for DEEP jobs
+            const resumeBtn = document.getElementById('resume-btn');
+            if (job.depth === 'DEEP') {
+              resumeBtn.classList.remove('hidden');
+              resumeBtn.dataset.jobId = jobId;
+            } else {
+              resumeBtn.classList.add('hidden');
+            }
             setTimeout(() => showView('error'), 1500);
           }
           removeActiveJob(jobId);
@@ -1530,6 +1539,8 @@ const App = (function() {
         const hoursText = hh && hh.total_hours > 0 ? `~${hh.total_hours}h equiv` : '';
         const jid = r.job_id || '';
         const nbUrls = r.notebooklm_urls || [];
+        const isFailed = r.status === 'failed';
+        const isDeep = (r.depth || '').toUpperCase() === 'DEEP';
         window._archiveMeta[jid] = { docId, resultUrl: r.result_url || '', query: r.query || '', nbUrls };
         return `<div id="archive-item-${esc(jid)}" class="archive-item glass-panel rounded-xl shadow-glass border border-white/60" data-jid="${escAttr(jid)}" data-docid="${escAttr(docId)}">
           <div class="flex items-center gap-3 p-4 pb-2">
@@ -1537,6 +1548,7 @@ const App = (function() {
               <h3 class="font-semibold text-sm text-slate-700 line-clamp-2">${esc(r.query||'Untitled')}</h3>
               <div class="flex flex-wrap gap-2 text-[11px] text-slate-400 mt-1">
                 <span class="bg-primary/10 text-primary px-2 py-0.5 rounded-md font-semibold">${esc(r.depth||'')}</span>
+                ${isFailed ? '<span class="bg-red-100 text-red-500 px-2 py-0.5 rounded-md font-semibold">Failed</span>' : ''}
                 ${studies ? '<span>'+studies+'</span>' : ''}
                 ${hoursText ? '<span class="text-rose-400">'+hoursText+'</span>' : ''}
                 ${date ? '<span>'+date+'</span>' : ''}
@@ -1549,6 +1561,7 @@ const App = (function() {
               ${r.result_url ? `<button data-action="view-report" data-url="${escAttr(r.result_url)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-primary to-cyan-400 hover:opacity-90 transition-opacity"><span class="material-icons text-sm">open_in_new</span>View Report</button>` : ''}
               ${r.result_url ? `<button data-action="copy-url" data-url="${escAttr(r.result_url)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors"><span class="material-icons text-sm">content_copy</span>Copy URL</button>` : ''}
               <button data-action="amend" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-colors"><span class="material-icons text-sm">edit</span>Amend</button>
+              ${isFailed && isDeep ? `<button data-action="resume" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors"><span class="material-icons text-sm">replay</span>Resume</button>` : ''}
               <button data-action="delete" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors ml-auto"><span class="material-icons text-sm">delete_forever</span>Delete</button>
             </div>
             ${nbUrls.length ? `
@@ -1592,6 +1605,8 @@ const App = (function() {
         const jid = actionBtn.dataset.jid;
         const meta = (window._archiveMeta || {})[jid] || {};
         amendResearch(jid, (meta.query || '').substring(0, 120));
+      } else if (action === 'resume') {
+        resumeResearch(actionBtn.dataset.jid);
       } else if (action === 'delete') {
         deleteResearch(actionBtn.dataset.jid);
       } else if (action === 'copy-nb-url') {
@@ -2166,6 +2181,43 @@ const App = (function() {
 
   function retry() { queryInput.value = lastQuery; showView('home'); }
 
+  async function resumeResearch(jobId) {
+    // Accept jobId param (from archive) or read from resume button dataset (from error view)
+    if (!jobId) {
+      const btn = document.getElementById('resume-btn');
+      jobId = btn ? btn.dataset.jobId : null;
+    }
+    if (!jobId) return;
+    try {
+      const res = await fetch('/api/research/resume', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({job_id: jobId})
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Resume failed');
+
+      const estSecs = data.estimated_seconds || 2400;
+      const now = Date.now();
+      // Also try archive metadata for query
+      const archiveMeta = (window._archiveMeta || {})[jobId] || {};
+      activeJobs[jobId] = {
+        query: data.query || archiveMeta.query || lastQuery || 'Resumed research', depth: 'DEEP',
+        startTime: now, estimatedSeconds: estSecs,
+        phase: 'Resuming from ' + (data.checkpoint_phase || 'checkpoint') + '...',
+        status: 'running', phaseTimings: {}, researchStats: {},
+        studyProgress: [], currentStep: '',
+      };
+      viewingJobId = jobId;
+      persistActiveJobs();
+      resetProgressView(now, estSecs);
+      ensurePolling();
+      showView('progress');
+    } catch(e) {
+      alert('Failed to resume: ' + e.message);
+    }
+  }
+
   function resumeProgress() {
     if (viewingJobId && activeJobs[viewingJobId]) showView('progress');
   }
@@ -2242,7 +2294,7 @@ const App = (function() {
   restoreReassignCountdown();
 
   /* ── Public API ── */
-  return { showView, retry, assignToAgent, startCall, endCall, copyReportUrl, useSuggested, forceStart, resumeProgress, viewJob, toggleReassign, deleteResearch, amendResearch, submitAmendment, filterGraph, createWatch, checkWatch, deleteWatch, archiveAssign, archiveUnassign, archiveStartChat };
+  return { showView, retry, resumeResearch, assignToAgent, startCall, endCall, copyReportUrl, useSuggested, forceStart, resumeProgress, viewJob, toggleReassign, deleteResearch, amendResearch, submitAmendment, filterGraph, createWatch, checkWatch, deleteWatch, archiveAssign, archiveUnassign, archiveStartChat };
 })();
 </script>
 </body>

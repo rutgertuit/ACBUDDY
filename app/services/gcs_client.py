@@ -488,7 +488,7 @@ def delete_result(job_id: str, bucket_name: str) -> bool:
         client = storage.Client()
         bucket = client.bucket(bucket_name)
         deleted = False
-        for suffix in [".html", "_meta.json"]:
+        for suffix in [".html", "_meta.json", "_checkpoint.json"]:
             blob = bucket.blob(f"results/{job_id}{suffix}")
             if blob.exists():
                 blob.delete()
@@ -504,6 +504,64 @@ def delete_result(job_id: str, bucket_name: str) -> bool:
     except Exception:
         logger.exception("Failed to delete result blobs for job %s", job_id)
         return False
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint helpers for resumable DEEP pipeline
+# ---------------------------------------------------------------------------
+
+
+def save_checkpoint(result_dict: dict, job_id: str, bucket_name: str) -> None:
+    """Save a pipeline checkpoint to GCS at results/{job_id}_checkpoint.json."""
+    if not bucket_name:
+        return
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(f"results/{job_id}_checkpoint.json")
+        blob.upload_from_string(json.dumps(result_dict), content_type="application/json")
+        logger.info("Saved checkpoint for job %s", job_id)
+    except Exception:
+        logger.exception("Failed to save checkpoint for job %s", job_id)
+
+
+def load_checkpoint(job_id: str, bucket_name: str) -> dict | None:
+    """Load a pipeline checkpoint from GCS. Returns None if not found."""
+    if not bucket_name:
+        return None
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(f"results/{job_id}_checkpoint.json")
+        if not blob.exists():
+            return None
+        data = json.loads(blob.download_as_text())
+        logger.info("Loaded checkpoint for job %s (phase: %s)", job_id, data.get("_checkpoint_phase", "?"))
+        return data
+    except Exception:
+        logger.exception("Failed to load checkpoint for job %s", job_id)
+        return None
+
+
+def delete_checkpoint(job_id: str, bucket_name: str) -> None:
+    """Delete the checkpoint blob on successful completion."""
+    if not bucket_name:
+        return
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(f"results/{job_id}_checkpoint.json")
+        if blob.exists():
+            blob.delete()
+            logger.info("Deleted checkpoint for job %s", job_id)
+    except Exception:
+        logger.exception("Failed to delete checkpoint for job %s", job_id)
 
 
 def update_metadata(job_id: str, bucket_name: str, updates: dict) -> None:

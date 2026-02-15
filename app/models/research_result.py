@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass, field
 
 
@@ -56,3 +57,13 @@ class ResearchResult:
     synthesis_score: float = 0.0
     synthesis_scores: dict = field(default_factory=dict)
     refinement_rounds: int = 0
+
+    def to_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ResearchResult":
+        data = dict(data)  # shallow copy
+        studies = [StudyResult(**s) for s in data.pop("studies", [])]
+        qa_clusters = [QAClusterResult(**q) for q in data.pop("qa_clusters", [])]
+        return cls(studies=studies, qa_clusters=qa_clusters, **data)

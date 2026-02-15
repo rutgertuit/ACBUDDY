@@ -13,7 +13,7 @@ from app.services import knowledge_graph as kg
 from app.services import memory_store
 from app.services import watch_store
 from app.services.job_tracker import JobStatus, count_active_jobs, create_job, get_job, update_job
-from app.services.research_orchestrator import run_research_for_ui, run_amendment_for_ui
+from app.services.research_orchestrator import run_research_for_ui, run_amendment_for_ui, resume_research_for_ui
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +181,50 @@ def amend_research():
         "job_id": new_job_id,
         "parent_job_id": parent_job_id,
         "estimated_seconds": 300,
+    }), 202
+
+
+@ui_api_bp.route("/api/research/resume", methods=["POST"])
+def resume_research():
+    """Resume a failed DEEP research job from its last checkpoint.
+
+    Body: {job_id}
+    Returns: {job_id, resumed: true, checkpoint_phase}
+    """
+    data = request.get_json(silent=True) or {}
+    job_id = (data.get("job_id") or "").strip()
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
+
+    settings = current_app.config["SETTINGS"]
+    bucket = settings.gcs_results_bucket
+
+    # Load checkpoint to verify it exists
+    checkpoint = gcs_client.load_checkpoint(job_id, bucket)
+    if not checkpoint:
+        return jsonify({"error": "No checkpoint found for this job"}), 404
+
+    # Verify job is in failed state (or lost from memory after restart)
+    job = get_job(job_id)
+    if job and job.status not in (JobStatus.FAILED,):
+        return jsonify({"error": f"Job is {job.status.value}, not failed"}), 400
+
+    checkpoint_phase = checkpoint.get("_checkpoint_phase", "unknown")
+
+    # Get query from metadata for the response
+    meta = gcs_client.get_result_metadata(job_id, bucket)
+    query = meta.get("query", "") if meta else ""
+
+    resume_research_for_ui(job_id, settings)
+
+    estimated = _ESTIMATED_DURATION.get("DEEP", 2400)
+    logger.info("Research resume started: job=%s from_phase=%s", job_id, checkpoint_phase)
+    return jsonify({
+        "job_id": job_id,
+        "resumed": True,
+        "checkpoint_phase": checkpoint_phase,
+        "estimated_seconds": estimated,
+        "query": query,
     }), 202
 
 

@@ -24,6 +24,7 @@ APP_NAME = "acbuddy_research"
 async def execute_research(
     query: str, context: str = "", depth: ResearchDepth = ResearchDepth.STANDARD,
     on_progress=None, gcs_bucket: str = "", business_context: dict | None = None,
+    job_id: str = "",
 ) -> ResearchResult:
     """Execute research pipeline at the specified depth.
 
@@ -68,6 +69,7 @@ async def execute_research(
         return await execute_deep_research(
             query=query, context=context, on_progress=on_progress,
             business_context=business_context,
+            gcs_bucket=gcs_bucket, job_id=job_id,
         )
 
     if depth == ResearchDepth.QUICK:

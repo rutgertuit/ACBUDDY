@@ -10,6 +10,7 @@ from app.models.depth import ResearchDepth
 from app.services import elevenlabs_client, gcs_client
 from app.services.job_tracker import (
     JobStatus, get_job, update_job, record_phase_timing, finalize_timings,
+    recreate_job,
 )
 from app.services.research_stats import init_stats, get_stats, compute_human_hours
 from app.agents.root_agent import execute_research
@@ -277,6 +278,14 @@ def run_research_for_ui(
                 user_query[:100],
             )
 
+            # Write initial metadata so query/depth survive process restart
+            if settings.gcs_results_bucket:
+                gcs_client.upload_metadata({
+                    "job_id": job_id, "query": user_query,
+                    "depth": depth.value.upper(), "status": "running",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }, job_id, settings.gcs_results_bucket)
+
             # Progress callback for DEEP pipeline
             def _on_progress(phase, **kwargs):
                 updates = {"phase": phase}
@@ -305,157 +314,11 @@ def run_research_for_ui(
                 execute_research(query=user_query, context="", depth=depth,
                                  on_progress=_on_progress,
                                  gcs_bucket=settings.gcs_results_bucket,
-                                 business_context=business_context)
+                                 business_context=business_context,
+                                 job_id=job_id)
             )
 
-            # Upload consolidated KB doc to ElevenLabs
-            elevenlabs_doc_id = ""
-            if settings.elevenlabs_api_key:
-                update_job(job_id, phase="Uploading to knowledge base")
-                try:
-                    consolidated = _build_consolidated_text(result, user_query, depth.value)
-                    if consolidated.strip():
-                        doc_name = f"Research: {user_query[:80]} ({job_id})"
-                        elevenlabs_doc_id = _upload_with_retry(
-                            text=consolidated,
-                            name=doc_name,
-                            api_key=settings.elevenlabs_api_key,
-                        )
-                        logger.info("Uploaded consolidated KB doc: %s", elevenlabs_doc_id)
-                except Exception:
-                    logger.exception("Failed to upload consolidated KB doc for job %s", job_id)
-
-            # Auto-attach to all agents + trigger RAG indexing
-            if elevenlabs_doc_id and settings.elevenlabs_api_key:
-                update_job(job_id, phase="Assigning research to agents")
-                doc_name = f"Research: {user_query[:80]} ({job_id})"
-                for slug in AGENTS:
-                    agent_id = get_agent_id(slug, settings)
-                    if not agent_id:
-                        continue
-                    try:
-                        elevenlabs_client.attach_document_to_agent(
-                            agent_id=agent_id,
-                            doc_id=elevenlabs_doc_id,
-                            doc_name=doc_name,
-                            api_key=settings.elevenlabs_api_key,
-                        )
-                        logger.info("Attached doc %s to agent %s (%s)", elevenlabs_doc_id, slug, agent_id)
-                    except Exception:
-                        logger.exception("Failed to attach doc to agent %s", slug)
-
-                # Trigger both RAG index models
-                try:
-                    elevenlabs_client.trigger_all_rag_indexes(
-                        doc_id=elevenlabs_doc_id,
-                        api_key=settings.elevenlabs_api_key,
-                    )
-                except Exception:
-                    logger.exception("Failed to trigger RAG index for doc %s", elevenlabs_doc_id)
-
-            # Capture final research stats
-            final_stats = get_stats()
-            num_studies = len(result.studies) if result.studies else 0
-            num_qa = len([c for c in result.qa_clusters if c.findings]) if result.qa_clusters else 0
-            human_hours = compute_human_hours(
-                final_stats, num_studies=num_studies,
-                num_qa_clusters=num_qa, depth=depth.value,
-            )
-            update_job(job_id, research_stats={**final_stats, "human_hours": human_hours})
-
-            # Finalize phase timings
-            record_phase_timing(job_id, "upload")
-            timings = finalize_timings(job_id)
-
-            # Upload results to GCS
-            update_job(job_id, phase="Uploading results")
-            result_url = ""
-            notebooklm_urls = []
-            if settings.gcs_results_bucket:
-                result_url = gcs_client.publish_results_with_metadata(
-                    result,
-                    user_query,
-                    depth.value,
-                    job_id,
-                    settings.gcs_results_bucket,
-                    elevenlabs_doc_id=elevenlabs_doc_id,
-                    phase_timings=timings,
-                    research_stats={**final_stats, "human_hours": human_hours},
-                )
-
-                # Publish individual NotebookLM source files
-                try:
-                    notebooklm_urls = gcs_client.publish_notebooklm_sources(
-                        result, user_query, job_id, settings.gcs_results_bucket,
-                    )
-                    if notebooklm_urls:
-                        result.notebooklm_urls = notebooklm_urls
-                        gcs_client.update_metadata(
-                            job_id, settings.gcs_results_bucket,
-                            {"notebooklm_urls": notebooklm_urls},
-                        )
-                        logger.info("Published %d NotebookLM sources", len(notebooklm_urls))
-                except Exception:
-                    logger.exception("Failed to publish NotebookLM sources (non-fatal)")
-
-            # Extract memories + entities in parallel (Feature 9: performance)
-            # Skip for QUICK depth to save API calls
-            if depth.value.upper() != "QUICK":
-                consolidated = _build_consolidated_text(result, user_query, depth.value)
-                if consolidated.strip():
-                    update_job(job_id, phase="Extracting memories & knowledge graph")
-
-                    async def _extract_both(text, _settings):
-                        """Run memory and entity extraction in parallel."""
-                        from app.agents.memory_extractor import extract_memories
-                        from app.agents.entity_extractor import extract_entities
-                        mem_task = extract_memories(text[:15000])
-                        ent_task = extract_entities(text[:20000])
-                        return await asyncio.gather(mem_task, ent_task)
-
-                    try:
-                        memories, extraction = asyncio.run(
-                            _extract_both(consolidated, settings)
-                        )
-
-                        # Save memories
-                        if memories:
-                            try:
-                                from app.services import memory_store
-                                store = memory_store.load_memory(settings.gcs_results_bucket)
-                                added = memory_store.add_memories(store, memories, job_id, user_query)
-                                memory_store.save_memory(store, settings.gcs_results_bucket)
-                                logger.info("Added %d memories from job %s", added, job_id)
-                            except Exception:
-                                logger.exception("Memory save failed (non-fatal)")
-
-                        # Save entities
-                        if extraction and extraction.get("entities"):
-                            try:
-                                from app.services import knowledge_graph as kg
-                                graph = kg.load_graph(settings.gcs_results_bucket)
-                                kg.merge_extraction(graph, extraction, job_id)
-                                kg.save_graph(graph, settings.gcs_results_bucket)
-                                logger.info(
-                                    "Knowledge graph updated: +%d entities, +%d relationships",
-                                    len(extraction.get("entities", [])),
-                                    len(extraction.get("relationships", [])),
-                                )
-                            except Exception:
-                                logger.exception("Knowledge graph save failed (non-fatal)")
-                    except Exception:
-                        logger.exception("Parallel extraction failed (non-fatal)")
-
-            update_job(
-                job_id,
-                status=JobStatus.COMPLETED,
-                phase="Complete",
-                result_url=result_url,
-                elevenlabs_doc_id=elevenlabs_doc_id,
-                notebooklm_urls=notebooklm_urls,
-                completed_at=datetime.now(timezone.utc).isoformat(),
-            )
-            logger.info("UI research complete: job=%s url=%s doc_id=%s timings=%s", job_id, result_url, elevenlabs_doc_id, timings)
+            _post_pipeline(job_id, user_query, depth, result, settings)
 
         except Exception as e:
             logger.exception("UI research failed: job=%s", job_id)
@@ -466,6 +329,255 @@ def run_research_for_ui(
                 error=str(e),
                 completed_at=datetime.now(timezone.utc).isoformat(),
             )
+            # Update GCS metadata with failure status
+            if settings.gcs_results_bucket:
+                gcs_client.update_metadata(job_id, settings.gcs_results_bucket, {
+                    "status": "failed", "error": str(e),
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                })
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+
+def _post_pipeline(job_id, user_query, depth, result, settings):
+    """Post-pipeline steps shared between run and resume: KB upload, GCS, memory extraction."""
+    # Upload consolidated KB doc to ElevenLabs
+    elevenlabs_doc_id = ""
+    if settings.elevenlabs_api_key:
+        update_job(job_id, phase="Uploading to knowledge base")
+        try:
+            consolidated = _build_consolidated_text(result, user_query, depth.value)
+            if consolidated.strip():
+                doc_name = f"Research: {user_query[:80]} ({job_id})"
+                elevenlabs_doc_id = _upload_with_retry(
+                    text=consolidated,
+                    name=doc_name,
+                    api_key=settings.elevenlabs_api_key,
+                )
+                logger.info("Uploaded consolidated KB doc: %s", elevenlabs_doc_id)
+        except Exception:
+            logger.exception("Failed to upload consolidated KB doc for job %s", job_id)
+
+    # Auto-attach to all agents + trigger RAG indexing
+    if elevenlabs_doc_id and settings.elevenlabs_api_key:
+        update_job(job_id, phase="Assigning research to agents")
+        doc_name = f"Research: {user_query[:80]} ({job_id})"
+        for slug in AGENTS:
+            agent_id = get_agent_id(slug, settings)
+            if not agent_id:
+                continue
+            try:
+                elevenlabs_client.attach_document_to_agent(
+                    agent_id=agent_id,
+                    doc_id=elevenlabs_doc_id,
+                    doc_name=doc_name,
+                    api_key=settings.elevenlabs_api_key,
+                )
+                logger.info("Attached doc %s to agent %s (%s)", elevenlabs_doc_id, slug, agent_id)
+            except Exception:
+                logger.exception("Failed to attach doc to agent %s", slug)
+
+        # Trigger both RAG index models
+        try:
+            elevenlabs_client.trigger_all_rag_indexes(
+                doc_id=elevenlabs_doc_id,
+                api_key=settings.elevenlabs_api_key,
+            )
+        except Exception:
+            logger.exception("Failed to trigger RAG index for doc %s", elevenlabs_doc_id)
+
+    # Capture final research stats
+    final_stats = get_stats()
+    num_studies = len(result.studies) if result.studies else 0
+    num_qa = len([c for c in result.qa_clusters if c.findings]) if result.qa_clusters else 0
+    human_hours = compute_human_hours(
+        final_stats, num_studies=num_studies,
+        num_qa_clusters=num_qa, depth=depth.value,
+    )
+    update_job(job_id, research_stats={**final_stats, "human_hours": human_hours})
+
+    # Finalize phase timings
+    record_phase_timing(job_id, "upload")
+    timings = finalize_timings(job_id)
+
+    # Upload results to GCS
+    update_job(job_id, phase="Uploading results")
+    result_url = ""
+    notebooklm_urls = []
+    if settings.gcs_results_bucket:
+        result_url = gcs_client.publish_results_with_metadata(
+            result,
+            user_query,
+            depth.value,
+            job_id,
+            settings.gcs_results_bucket,
+            elevenlabs_doc_id=elevenlabs_doc_id,
+            phase_timings=timings,
+            research_stats={**final_stats, "human_hours": human_hours},
+        )
+
+        # Publish individual NotebookLM source files
+        try:
+            notebooklm_urls = gcs_client.publish_notebooklm_sources(
+                result, user_query, job_id, settings.gcs_results_bucket,
+            )
+            if notebooklm_urls:
+                result.notebooklm_urls = notebooklm_urls
+                gcs_client.update_metadata(
+                    job_id, settings.gcs_results_bucket,
+                    {"notebooklm_urls": notebooklm_urls},
+                )
+                logger.info("Published %d NotebookLM sources", len(notebooklm_urls))
+        except Exception:
+            logger.exception("Failed to publish NotebookLM sources (non-fatal)")
+
+    # Extract memories + entities in parallel
+    # Skip for QUICK depth to save API calls
+    if depth.value.upper() != "QUICK":
+        consolidated = _build_consolidated_text(result, user_query, depth.value)
+        if consolidated.strip():
+            update_job(job_id, phase="Extracting memories & knowledge graph")
+
+            async def _extract_both(text, _settings):
+                """Run memory and entity extraction in parallel."""
+                from app.agents.memory_extractor import extract_memories
+                from app.agents.entity_extractor import extract_entities
+                mem_task = extract_memories(text[:15000])
+                ent_task = extract_entities(text[:20000])
+                return await asyncio.gather(mem_task, ent_task)
+
+            try:
+                memories, extraction = asyncio.run(
+                    _extract_both(consolidated, settings)
+                )
+
+                # Save memories
+                if memories:
+                    try:
+                        from app.services import memory_store
+                        store = memory_store.load_memory(settings.gcs_results_bucket)
+                        added = memory_store.add_memories(store, memories, job_id, user_query)
+                        memory_store.save_memory(store, settings.gcs_results_bucket)
+                        logger.info("Added %d memories from job %s", added, job_id)
+                    except Exception:
+                        logger.exception("Memory save failed (non-fatal)")
+
+                # Save entities
+                if extraction and extraction.get("entities"):
+                    try:
+                        from app.services import knowledge_graph as kg
+                        graph = kg.load_graph(settings.gcs_results_bucket)
+                        kg.merge_extraction(graph, extraction, job_id)
+                        kg.save_graph(graph, settings.gcs_results_bucket)
+                        logger.info(
+                            "Knowledge graph updated: +%d entities, +%d relationships",
+                            len(extraction.get("entities", [])),
+                            len(extraction.get("relationships", [])),
+                        )
+                    except Exception:
+                        logger.exception("Knowledge graph save failed (non-fatal)")
+            except Exception:
+                logger.exception("Parallel extraction failed (non-fatal)")
+
+    update_job(
+        job_id,
+        status=JobStatus.COMPLETED,
+        phase="Complete",
+        result_url=result_url,
+        elevenlabs_doc_id=elevenlabs_doc_id,
+        notebooklm_urls=notebooklm_urls,
+        completed_at=datetime.now(timezone.utc).isoformat(),
+    )
+    logger.info("UI research complete: job=%s url=%s doc_id=%s timings=%s", job_id, result_url, elevenlabs_doc_id, timings)
+
+
+def resume_research_for_ui(
+    job_id: str,
+    settings: Settings,
+) -> None:
+    """Resume a failed DEEP research job from its last checkpoint.
+
+    Reconstructs JobInfo from GCS metadata if not in memory,
+    then re-runs the pipeline (checkpoint loading skips completed phases).
+    """
+
+    def _run():
+        try:
+            # Reconstruct job from GCS metadata if process restarted
+            meta = gcs_client.get_result_metadata(job_id, settings.gcs_results_bucket)
+            if not meta:
+                logger.error("Cannot resume job %s: no metadata found", job_id)
+                return
+
+            user_query = meta.get("query", "")
+            depth_str = meta.get("depth", "DEEP")
+            depth = ResearchDepth(depth_str.lower())
+
+            # Ensure job exists in memory
+            recreate_job(job_id, user_query, depth_str)
+
+            init_stats(job_id=job_id)
+            update_job(
+                job_id,
+                status=JobStatus.RUNNING,
+                phase="Resuming from checkpoint",
+                error="",
+            )
+            logger.info("Resuming research: job=%s query=%s", job_id, user_query[:100])
+
+            # Update GCS metadata
+            gcs_client.update_metadata(job_id, settings.gcs_results_bucket, {
+                "status": "running",
+                "resumed_at": datetime.now(timezone.utc).isoformat(),
+            })
+
+            # Progress callback
+            def _on_progress(phase, **kwargs):
+                updates = {"phase": phase}
+                if "step" in kwargs:
+                    updates["current_step"] = kwargs["step"]
+                    step = kwargs["step"]
+                    timing_key = "studies" if step.startswith("study_") else ("refinement" if step.startswith("gap_study_") else step)
+                    record_phase_timing(job_id, timing_key)
+                if "study_plan" in kwargs:
+                    updates["study_plan"] = kwargs["study_plan"]
+                if "study_progress" in kwargs:
+                    updates["study_progress"] = kwargs["study_progress"]
+                if "study_idx" in kwargs and "study_status" in kwargs:
+                    job = get_job(job_id)
+                    if job and job.study_progress:
+                        idx = kwargs["study_idx"]
+                        if idx < len(job.study_progress):
+                            job.study_progress[idx]["status"] = kwargs["study_status"]
+                update_job(job_id, **updates)
+
+            # Execute pipeline — same job_id triggers checkpoint loading
+            result = asyncio.run(
+                execute_research(
+                    query=user_query, context="", depth=depth,
+                    on_progress=_on_progress,
+                    gcs_bucket=settings.gcs_results_bucket,
+                    job_id=job_id,
+                )
+            )
+
+            _post_pipeline(job_id, user_query, depth, result, settings)
+
+        except Exception as e:
+            logger.exception("Resume failed: job=%s", job_id)
+            update_job(
+                job_id,
+                status=JobStatus.FAILED,
+                phase="Failed",
+                error=str(e),
+                completed_at=datetime.now(timezone.utc).isoformat(),
+            )
+            if settings.gcs_results_bucket:
+                gcs_client.update_metadata(job_id, settings.gcs_results_bucket, {
+                    "status": "failed", "error": str(e),
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                })
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
