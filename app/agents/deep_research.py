@@ -15,7 +15,7 @@ MAX_SEARCH_RETRIES = 3
 SEARCH_INITIAL_BACKOFF = 2
 
 
-def web_search(query: str) -> str:
+def web_search(query: str, **_kwargs) -> str:
     """Search the web using Gemini's built-in search grounding and return results.
 
     Args:
@@ -24,6 +24,8 @@ def web_search(query: str) -> str:
     Returns:
         Search results as formatted text with sources.
     """
+    if _kwargs:
+        logger.debug("Ignoring hallucinated kwargs for web_search: %s", list(_kwargs))
     from google import genai
     from google.genai.types import Tool, GenerateContentConfig
 
@@ -90,7 +92,7 @@ def web_search(query: str) -> str:
     return f"Search failed after retries: {last_error}"
 
 
-def pull_sources(urls: list[str]) -> str:
+def pull_sources(urls: list[str], **_kwargs) -> str:
     """Fetch URLs, strip HTML tags, and return truncated plain text.
 
     Args:
@@ -99,6 +101,8 @@ def pull_sources(urls: list[str]) -> str:
     Returns:
         Combined text content from all successfully fetched URLs.
     """
+    if _kwargs:
+        logger.debug("Ignoring hallucinated kwargs for pull_sources: %s", list(_kwargs))
     # Score and sort URLs by authority (high first)
     from app.services.source_scorer import score_and_sort, format_authority_tag
     scored_urls = score_and_sort(urls[:5])
@@ -138,7 +142,7 @@ def pull_sources(urls: list[str]) -> str:
     return "\n---\n".join(results)
 
 
-def search_news(query: str) -> str:
+def search_news(query: str, **_kwargs) -> str:
     """Search recent news articles for current events, market developments, and media coverage.
 
     Use this tool when the research question involves:
@@ -153,6 +157,8 @@ def search_news(query: str) -> str:
     Returns:
         Formatted news results with titles, descriptions, sources, and URLs.
     """
+    if _kwargs:
+        logger.debug("Ignoring hallucinated kwargs for search_news: %s", list(_kwargs))
     api_key = os.getenv("NEWSAPI_KEY", "")
     if not api_key:
         return "News search unavailable (no API key configured)"
@@ -173,7 +179,7 @@ def search_news(query: str) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def search_grok(query: str) -> str:
+def search_grok(query: str, **_kwargs) -> str:
     """Search using Grok for real-time web and social media insights.
 
     Use this tool when the research question involves:
@@ -188,6 +194,8 @@ def search_grok(query: str) -> str:
     Returns:
         Synthesized findings from Grok including social and web data.
     """
+    if _kwargs:
+        logger.debug("Ignoring hallucinated kwargs for search_grok: %s", list(_kwargs))
     api_key = os.getenv("GROK_API_KEY", "")
     if not api_key:
         return "Grok search unavailable (no API key configured)"
@@ -197,7 +205,7 @@ def search_grok(query: str) -> str:
     return result or f"No results from Grok for: {query}"
 
 
-def deep_reason(question: str, context: str) -> str:
+def deep_reason(question: str, context: str, **_kwargs) -> str:
     """Use OpenAI for deep analytical reasoning over complex questions.
 
     Use this tool when the research question requires:
@@ -213,6 +221,8 @@ def deep_reason(question: str, context: str) -> str:
     Returns:
         Deep analytical reasoning and insights.
     """
+    if _kwargs:
+        logger.debug("Ignoring hallucinated kwargs for deep_reason: %s", list(_kwargs))
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         return "Deep reasoning unavailable (no API key configured)"
@@ -224,7 +234,7 @@ def deep_reason(question: str, context: str) -> str:
     return result or f"No reasoning output for: {question}"
 
 
-def search_financial(query: str) -> str:
+def search_financial(query: str, **_kwargs) -> str:
     """Search for financial data including stock prices, company fundamentals, and SEC filings.
 
     Use this tool when the research involves:
@@ -239,6 +249,8 @@ def search_financial(query: str) -> str:
     Returns:
         Formatted financial data with sources.
     """
+    if _kwargs:
+        logger.debug("Ignoring hallucinated kwargs for search_financial: %s", list(_kwargs))
     from app.services import financial_client
     from app.services.research_stats import increment
 
@@ -273,7 +285,7 @@ def search_financial(query: str) -> str:
     return "\n".join(parts) if parts else f"No financial data found for: {query}"
 
 
-def search_company(company_name: str) -> str:
+def search_company(company_name: str, **_kwargs) -> str:
     """Search for company profile and competitive intelligence.
 
     Use this tool when the research involves:
@@ -288,6 +300,8 @@ def search_company(company_name: str) -> str:
     Returns:
         Formatted company profile with sources.
     """
+    if _kwargs:
+        logger.debug("Ignoring hallucinated kwargs for search_company: %s", list(_kwargs))
     from app.services import competitive_intel_client
     from app.services.research_stats import increment
 
