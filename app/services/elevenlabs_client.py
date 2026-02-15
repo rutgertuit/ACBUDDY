@@ -1,5 +1,6 @@
 import io
 import logging
+import time
 from typing import Optional
 
 import requests
@@ -40,17 +41,19 @@ def format_conversation_context(data: dict) -> str:
 
 
 def upload_to_knowledge_base(text: str, name: str, api_key: str) -> str:
-    """Upload text as a document to ElevenLabs Knowledge Base. Returns document ID."""
-    url = f"{BASE_URL}/convai/knowledge-base/text"
-    payload = {
-        "name": name,
-        "text": text,
-    }
-    resp = requests.post(url, headers=_headers(api_key), json=payload, timeout=60)
+    """Upload markdown as a .md file to ElevenLabs Knowledge Base. Returns document ID."""
+    url = f"{BASE_URL}/convai/knowledge-base"
+    # Ensure name ends with .md for ElevenLabs to process as markdown
+    filename = name if name.endswith(".md") else f"{name}.md"
+    md_bytes = text.encode("utf-8")
+    files = {"file": (filename, io.BytesIO(md_bytes), "text/markdown")}
+    # Use multipart form data — no Content-Type header (requests sets boundary)
+    headers = {"xi-api-key": api_key}
+    resp = requests.post(url, headers=headers, files=files, timeout=60)
     resp.raise_for_status()
     result = resp.json()
     doc_id = result.get("id", result.get("document_id", ""))
-    logger.info("Uploaded KB document: %s (id=%s)", name, doc_id)
+    logger.info("Uploaded KB document (md): %s (id=%s)", name, doc_id)
     return doc_id
 
 
@@ -103,15 +106,15 @@ def attach_document_to_agent(agent_id: str, doc_id: str, doc_name: str, api_key:
     )
     resp = requests.patch(patch_url, headers=headers, json=patch_payload, timeout=30)
     if resp.status_code == 422 and "rag_index_not_ready" in resp.text:
-        # Auto-fix: trigger both RAG index models and retry once
+        # Auto-fix: trigger both RAG index models and retry
         logger.warning(
-            "RAG index not ready for doc %s on agent %s — triggering indexes and retrying",
+            "RAG index not ready for doc %s on agent %s — triggering indexes and polling",
             doc_id, agent_id,
         )
         trigger_all_rag_indexes(doc_id, api_key)
-        # Wait up to 60s for indexes to complete
-        import time
-        for _ in range(12):
+        # Wait up to 180s for indexes to complete (36 × 5s)
+        indexes_ready = False
+        for attempt in range(36):
             time.sleep(5)
             idx_resp = requests.get(
                 f"{BASE_URL}/convai/knowledge-base/{doc_id}/rag-index",
@@ -119,9 +122,18 @@ def attach_document_to_agent(agent_id: str, doc_id: str, doc_name: str, api_key:
             )
             if idx_resp.ok:
                 indexes = idx_resp.json().get("indexes", [])
+                statuses = {i.get("model", "?"): i.get("status", "?") for i in indexes}
+                if attempt % 6 == 0:  # Log every 30s
+                    logger.info(
+                        "RAG index poll %d/36 for doc %s: %s",
+                        attempt + 1, doc_id, statuses,
+                    )
                 if all(i.get("status") == "succeeded" for i in indexes):
-                    logger.info("All RAG indexes ready for doc %s, retrying PATCH", doc_id)
+                    logger.info("All RAG indexes ready for doc %s after %ds", doc_id, (attempt + 1) * 5)
+                    indexes_ready = True
                     break
+        if not indexes_ready:
+            logger.warning("RAG indexes still not ready after 180s for doc %s", doc_id)
         # Retry the PATCH
         resp = requests.patch(patch_url, headers=headers, json=patch_payload, timeout=30)
 
@@ -271,6 +283,42 @@ def attach_documents_to_agent(agent_id: str, doc_map: dict[str, str], api_key: s
         }
     }
     resp = requests.patch(patch_url, headers=headers, json=patch_payload, timeout=30)
+
+    if resp.status_code == 422 and "rag_index_not_ready" in resp.text:
+        logger.warning(
+            "RAG index not ready for batch attach to agent %s — triggering indexes for %d docs",
+            agent_id, len(new_docs),
+        )
+        for doc in new_docs:
+            trigger_all_rag_indexes(doc["id"], api_key)
+        # Poll all docs for up to 180s
+        for attempt in range(36):
+            time.sleep(5)
+            all_ready = True
+            for doc in new_docs:
+                idx_resp = requests.get(
+                    f"{BASE_URL}/convai/knowledge-base/{doc['id']}/rag-index",
+                    headers=headers, timeout=30,
+                )
+                if idx_resp.ok:
+                    indexes = idx_resp.json().get("indexes", [])
+                    if not all(i.get("status") == "succeeded" for i in indexes):
+                        all_ready = False
+                        break
+                else:
+                    all_ready = False
+                    break
+            if all_ready:
+                logger.info("All RAG indexes ready after %ds, retrying batch PATCH", (attempt + 1) * 5)
+                break
+            if attempt % 6 == 0:
+                logger.info("RAG index batch poll %d/36 — still waiting", attempt + 1)
+        resp = requests.patch(patch_url, headers=headers, json=patch_payload, timeout=30)
+
+    if resp.status_code == 422 and "rag_index_not_ready" in resp.text:
+        raise RagIndexNotReadyError(
+            f"Documents still being indexed after 180s for agent {agent_id}"
+        )
     resp.raise_for_status()
     logger.info("Attached %d new documents to agent %s (total KB: %d)", len(new_docs), agent_id, len(existing_kb))
 

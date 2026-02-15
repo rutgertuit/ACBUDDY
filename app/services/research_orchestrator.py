@@ -94,6 +94,7 @@ def _handle_standard_upload(result, user_query, conversation_id, agent_id, setti
         return
 
     # Attach to ALL agents, not just the triggering one
+    failed_agents = []
     for slug in AGENTS:
         aid = get_agent_id(slug, settings)
         if not aid:
@@ -106,8 +107,27 @@ def _handle_standard_upload(result, user_query, conversation_id, agent_id, setti
                 api_key=settings.elevenlabs_api_key,
             )
             logger.info("Attached doc %s to agent %s (%s)", doc_id, slug, aid)
+        except elevenlabs_client.RagIndexNotReadyError:
+            logger.warning("RAG index not ready for agent %s (%s) — will retry", slug, aid)
+            failed_agents.append((slug, aid))
         except Exception:
             logger.exception("Failed to attach doc to agent %s", slug)
+
+    if failed_agents:
+        import time
+        logger.info("Waiting 60s before retrying %d failed agent attaches", len(failed_agents))
+        time.sleep(60)
+        for slug, aid in failed_agents:
+            try:
+                elevenlabs_client.attach_document_to_agent(
+                    agent_id=aid,
+                    doc_id=doc_id,
+                    doc_name=doc_name,
+                    api_key=settings.elevenlabs_api_key,
+                )
+                logger.info("Retry succeeded: attached doc %s to agent %s (%s)", doc_id, slug, aid)
+            except Exception:
+                logger.exception("Retry also failed for agent %s (%s)", slug, aid)
 
     if settings.gcs_results_bucket:
         url = gcs_client.publish_results(
@@ -174,6 +194,7 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
 
     # Batch attach all documents to ALL agents
     if all_docs:
+        failed_agents = []
         for slug in AGENTS:
             aid = get_agent_id(slug, settings)
             if not aid:
@@ -185,8 +206,26 @@ def _handle_deep_upload(result, user_query, conversation_id, agent_id, settings)
                     api_key=api_key,
                 )
                 logger.info("Attached %d docs to agent %s (%s)", len(all_docs), slug, aid)
+            except elevenlabs_client.RagIndexNotReadyError:
+                logger.warning("RAG index not ready for batch attach to agent %s (%s) — will retry", slug, aid)
+                failed_agents.append((slug, aid))
             except Exception:
                 logger.exception("Failed to batch attach documents to agent %s", slug)
+
+        if failed_agents:
+            import time
+            logger.info("Waiting 60s before retrying %d failed batch attaches", len(failed_agents))
+            time.sleep(60)
+            for slug, aid in failed_agents:
+                try:
+                    elevenlabs_client.attach_documents_to_agent(
+                        agent_id=aid,
+                        doc_map=all_docs,
+                        api_key=api_key,
+                    )
+                    logger.info("Retry succeeded: attached %d docs to agent %s (%s)", len(all_docs), slug, aid)
+                except Exception:
+                    logger.exception("Retry also failed for batch attach to agent %s (%s)", slug, aid)
 
     result.all_doc_ids = list(all_docs.keys())
     logger.info(
@@ -363,6 +402,7 @@ def _post_pipeline(job_id, user_query, depth, result, settings):
     if elevenlabs_doc_id and settings.elevenlabs_api_key:
         update_job(job_id, phase="Assigning research to agents")
         doc_name = f"Research: {user_query[:80]} ({job_id})"
+        failed_agents = []
         for slug in AGENTS:
             agent_id = get_agent_id(slug, settings)
             if not agent_id:
@@ -375,10 +415,30 @@ def _post_pipeline(job_id, user_query, depth, result, settings):
                     api_key=settings.elevenlabs_api_key,
                 )
                 logger.info("Attached doc %s to agent %s (%s)", elevenlabs_doc_id, slug, agent_id)
+            except elevenlabs_client.RagIndexNotReadyError:
+                logger.warning("RAG index not ready for agent %s (%s) — will retry", slug, agent_id)
+                failed_agents.append((slug, agent_id))
             except Exception:
                 logger.exception("Failed to attach doc to agent %s", slug)
 
-        # Trigger both RAG index models
+        # Retry failed agents after a delay (RAG indexing may have caught up)
+        if failed_agents:
+            import time
+            logger.info("Waiting 60s before retrying %d failed agent attaches", len(failed_agents))
+            time.sleep(60)
+            for slug, agent_id in failed_agents:
+                try:
+                    elevenlabs_client.attach_document_to_agent(
+                        agent_id=agent_id,
+                        doc_id=elevenlabs_doc_id,
+                        doc_name=doc_name,
+                        api_key=settings.elevenlabs_api_key,
+                    )
+                    logger.info("Retry succeeded: attached doc %s to agent %s (%s)", elevenlabs_doc_id, slug, agent_id)
+                except Exception:
+                    logger.exception("Retry also failed for agent %s (%s)", slug, agent_id)
+
+        # Trigger both RAG index models (for any future consumers)
         try:
             elevenlabs_client.trigger_all_rag_indexes(
                 doc_id=elevenlabs_doc_id,

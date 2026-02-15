@@ -19,3 +19,6 @@ env/
 Thumbs.db
 *.log
 .claude/
+explore/node_modules/
+explore/dist/
+explore/.observablehq/

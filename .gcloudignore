@@ -7,3 +7,6 @@ __pycache__/
 *.pyc
 NUL
 .claude/
+explore/node_modules/
+explore/dist/
+explore/.observablehq/

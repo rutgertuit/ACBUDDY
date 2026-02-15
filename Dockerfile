@@ -1,3 +1,10 @@
+FROM node:20-slim AS obs-builder
+WORKDIR /obs
+COPY explore/package.json explore/package-lock.json* ./
+RUN npm ci
+COPY explore/ ./
+RUN npm run build
+
 FROM python:3.11-slim AS builder
 
 WORKDIR /build
@@ -12,8 +19,11 @@ RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuse
 WORKDIR /app
 
 COPY --from=builder /install /usr/local
+COPY --from=obs-builder /obs/dist/ ./explore_dist/
 
 COPY app/ ./app/
+
+ENV EXPLORE_DIST_DIR=/app/explore_dist
 
 RUN chown -R appuser:appuser /app
 
