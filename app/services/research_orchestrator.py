@@ -344,9 +344,9 @@ def run_research_for_ui(
                     except Exception:
                         logger.exception("Failed to attach doc to agent %s", slug)
 
-                # Trigger RAG indexing
+                # Trigger both RAG index models
                 try:
-                    elevenlabs_client.trigger_rag_index(
+                    elevenlabs_client.trigger_all_rag_indexes(
                         doc_id=elevenlabs_doc_id,
                         api_key=settings.elevenlabs_api_key,
                     )
@@ -563,7 +563,7 @@ def run_amendment_for_ui(
                     except Exception:
                         logger.exception("Failed to attach amendment to agent %s", slug)
                 try:
-                    elevenlabs_client.trigger_rag_index(
+                    elevenlabs_client.trigger_all_rag_indexes(
                         doc_id=elevenlabs_doc_id,
                         api_key=settings.elevenlabs_api_key,
                     )

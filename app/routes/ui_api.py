@@ -3,6 +3,7 @@
 import logging
 import time
 
+import requests
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from app.agents.agent_profiles import AGENTS, get_agent_id
@@ -391,9 +392,9 @@ def attach_kb(slug: str):
             doc_name=doc_name or doc_id,
             api_key=settings.elevenlabs_api_key,
         )
-        # Trigger RAG indexing so the agent can actually retrieve the doc
+        # Trigger both RAG index models so the agent can retrieve the doc
         try:
-            elevenlabs_client.trigger_rag_index(
+            elevenlabs_client.trigger_all_rag_indexes(
                 doc_id=doc_id,
                 api_key=settings.elevenlabs_api_key,
             )
@@ -404,6 +405,18 @@ def attach_kb(slug: str):
         for s in AGENTS:
             _cache.pop(f"kb_docs_{s}", None)
         return jsonify({"ok": True})
+    except elevenlabs_client.RagIndexNotReadyError as e:
+        logger.warning("RAG not ready for doc %s on agent %s", doc_id, slug)
+        return jsonify({"error": str(e), "rag_not_ready": True}), 409
+    except requests.exceptions.HTTPError as e:
+        body = ""
+        if e.response is not None:
+            try:
+                body = e.response.text[:500]
+            except Exception:
+                pass
+        logger.exception("Failed to attach doc %s to agent %s: %s", doc_id, slug, body)
+        return jsonify({"error": f"{e} — {body}"}), 500
     except Exception as e:
         logger.exception("Failed to attach doc %s to agent %s", doc_id, slug)
         return jsonify({"error": str(e)}), 500

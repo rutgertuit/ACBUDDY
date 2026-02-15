@@ -98,6 +98,31 @@ tailwind.config = {
   .stat-value { font-size:1.15rem; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.2; }
   .stat-label { font-size:9px; text-transform:uppercase; letter-spacing:0.08em; color:#94a3b8; margin-top:2px; }
 
+  /* Archive expand/collapse */
+  .archive-item { cursor: pointer; transition: box-shadow 0.2s; }
+  .archive-item:hover { box-shadow: 0 8px 32px 0 rgba(31,38,135,0.12); }
+  .archive-item.expanded { box-shadow: 0 8px 32px 0 rgba(13,204,242,0.10); border-color: rgba(13,204,242,0.25); }
+  .archive-detail {
+    max-height: 0; overflow: hidden; opacity: 0;
+    transition: max-height 0.35s ease, opacity 0.25s ease, padding 0.25s ease;
+    padding: 0 16px;
+  }
+  .archive-detail.open {
+    max-height: 800px; opacity: 1; padding: 12px 16px 16px;
+  }
+  .archive-chevron { transition: transform 0.25s; }
+  .archive-item.expanded .archive-chevron { transform: rotate(180deg); }
+  .archive-agent-row {
+    background: rgba(255,255,255,0.5); backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.7); border-radius: 10px;
+    padding: 10px 12px; transition: all 0.2s;
+  }
+  .archive-agent-row:hover { background: rgba(255,255,255,0.7); }
+  .archive-countdown {
+    background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.2);
+    border-radius: 8px; padding: 8px 12px;
+  }
+
   /* Parallel cluster node */
   @keyframes node-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(13,204,242,0.3)} 50%{box-shadow:0 0 0 6px rgba(13,204,242,0)} }
   .cluster-node { border-radius:10px; padding:4px 10px; font-size:11px; transition:all 0.3s; }
@@ -687,6 +712,7 @@ const App = (function() {
 
   /* ── Helpers ── */
   function esc(s) { const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+  function escAttr(s) { return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function fmtTime(secs) {
     if (secs < 0) secs = 0;
     const m = Math.floor(secs / 60);
@@ -1478,6 +1504,9 @@ const App = (function() {
   }
 
   /* ── Archive ── */
+  let expandedArchiveId = null;
+  let archiveCountdownTimers = {}; // { "jobId_slug": intervalId }
+
   async function loadArchive() {
     const container = document.getElementById('archive-list');
     container.innerHTML = '<div class="flex justify-center py-8"><div class="w-6 h-6 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>';
@@ -1489,6 +1518,9 @@ const App = (function() {
         container.innerHTML = '<div class="flex flex-col items-center justify-center py-12 text-slate-400"><span class="material-icons text-4xl mb-2 opacity-40">science</span><p class="text-sm">No research yet</p></div>';
         return;
       }
+      expandedArchiveId = null;
+      // Store metadata in a lookup so we don't need to embed strings in onclick
+      window._archiveMeta = {};
       container.innerHTML = results.map(r => {
         const date = r.completed_at ? new Date(r.completed_at).toLocaleDateString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
         const studies = r.num_studies ? r.num_studies + ' studies' : '';
@@ -1496,26 +1528,352 @@ const App = (function() {
         const stats = r.research_stats || {};
         const hh = stats.human_hours;
         const hoursText = hh && hh.total_hours > 0 ? `~${hh.total_hours}h equiv` : '';
-        return `<div class="glass-panel rounded-xl p-4 shadow-glass border border-white/60 space-y-2">
-          <div class="cursor-pointer" onclick="window.open('${esc(r.result_url||'')}','_blank')">
-            <h3 class="font-semibold text-sm text-slate-700 line-clamp-2">${esc(r.query||'Untitled')}</h3>
-            <div class="flex flex-wrap gap-2 text-[11px] text-slate-400 mt-1">
-              <span class="bg-primary/10 text-primary px-2 py-0.5 rounded-md font-semibold">${esc(r.depth||'')}</span>
-              ${studies ? '<span>'+studies+'</span>' : ''}
-              ${hoursText ? '<span class="text-rose-400">'+hoursText+'</span>' : ''}
-              ${date ? '<span>'+date+'</span>' : ''}
+        const jid = r.job_id || '';
+        const nbUrls = r.notebooklm_urls || [];
+        window._archiveMeta[jid] = { docId, resultUrl: r.result_url || '', query: r.query || '', nbUrls };
+        return `<div id="archive-item-${esc(jid)}" class="archive-item glass-panel rounded-xl shadow-glass border border-white/60" data-jid="${escAttr(jid)}" data-docid="${escAttr(docId)}">
+          <div class="flex items-center gap-3 p-4 pb-2">
+            <div class="flex-1 min-w-0">
+              <h3 class="font-semibold text-sm text-slate-700 line-clamp-2">${esc(r.query||'Untitled')}</h3>
+              <div class="flex flex-wrap gap-2 text-[11px] text-slate-400 mt-1">
+                <span class="bg-primary/10 text-primary px-2 py-0.5 rounded-md font-semibold">${esc(r.depth||'')}</span>
+                ${studies ? '<span>'+studies+'</span>' : ''}
+                ${hoursText ? '<span class="text-rose-400">'+hoursText+'</span>' : ''}
+                ${date ? '<span>'+date+'</span>' : ''}
+              </div>
             </div>
+            <span class="material-icons archive-chevron text-slate-300 text-lg flex-shrink-0">expand_more</span>
           </div>
-          <div class="flex items-center gap-3">
-            <button onclick="App.archiveChat('${esc(docId)}','${esc((r.query||'').substring(0,60))}','${esc(r.result_url||'')}')" class="text-[11px] text-primary font-medium flex items-center gap-1 hover:underline"><span class="material-icons text-sm">chat</span>Chat about this</button>
-            ${r.result_url ? `<button onclick="navigator.clipboard.writeText('${esc(r.result_url)}');this.querySelector('.material-icons').textContent='check';setTimeout(()=>this.querySelector('.material-icons').textContent='content_copy',1500)" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-primary transition-colors"><span class="material-icons text-sm">content_copy</span>Copy URL</button>` : ''}
-            <button onclick="App.amendResearch('${esc(r.job_id)}','${esc((r.query||'').substring(0,120))}')" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-amber-500 transition-colors"><span class="material-icons text-sm">edit</span>Amend</button>
-            <button onclick="App.deleteResearch('${esc(r.job_id)}')" class="text-[11px] text-slate-400 font-medium flex items-center gap-1 hover:text-red-500 transition-colors ml-auto"><span class="material-icons text-sm">delete_forever</span></button>
+          <div id="archive-detail-${esc(jid)}" class="archive-detail">
+            <div class="flex flex-wrap items-center gap-2 mb-3">
+              ${r.result_url ? `<button data-action="view-report" data-url="${escAttr(r.result_url)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-primary to-cyan-400 hover:opacity-90 transition-opacity"><span class="material-icons text-sm">open_in_new</span>View Report</button>` : ''}
+              ${r.result_url ? `<button data-action="copy-url" data-url="${escAttr(r.result_url)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors"><span class="material-icons text-sm">content_copy</span>Copy URL</button>` : ''}
+              <button data-action="amend" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-colors"><span class="material-icons text-sm">edit</span>Amend</button>
+              <button data-action="delete" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors ml-auto"><span class="material-icons text-sm">delete_forever</span>Delete</button>
+            </div>
+            ${nbUrls.length ? `
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 mt-1">NotebookLM Sources</div>
+            <div class="mb-3 space-y-1">
+              <button data-action="copy-all-nb" data-jid="${escAttr(jid)}" class="flex items-center gap-1 text-[11px] text-primary font-medium hover:underline mb-1"><span class="material-icons" style="font-size:14px">content_copy</span>Copy all URLs</button>
+              ${nbUrls.map((u, i) => `<div class="flex items-center gap-2 text-[11px]">
+                <span class="text-slate-400 truncate flex-1" title="${escAttr(u.url)}">${esc(u.label)}</span>
+                <button data-action="copy-nb-url" data-url="${escAttr(u.url)}" class="flex items-center gap-0.5 text-slate-400 hover:text-primary transition-colors flex-shrink-0"><span class="material-icons" style="font-size:13px">content_copy</span></button>
+              </div>`).join('')}
+            </div>
+            ` : ''}
+            <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Agents</div>
+            <div id="archive-agents-${esc(jid)}" class="space-y-2">
+              <div class="flex justify-center py-3"><div class="w-4 h-4 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>
+            </div>
           </div>
         </div>`;
       }).join('');
+      restoreArchiveCountdowns();
     } catch(e) {
       container.innerHTML = '<div class="flex flex-col items-center justify-center py-12 text-slate-400"><span class="material-icons text-4xl mb-2 opacity-40">cloud_off</span><p class="text-sm">Failed to load archive</p></div>';
+    }
+  }
+
+  // Event delegation for archive list — handles all clicks
+  document.addEventListener('click', function(event) {
+    // Handle action buttons inside archive detail
+    const actionBtn = event.target.closest('[data-action]');
+    if (actionBtn && actionBtn.closest('#archive-list')) {
+      event.stopPropagation();
+      const action = actionBtn.dataset.action;
+      if (action === 'view-report') {
+        window.open(actionBtn.dataset.url, '_blank');
+      } else if (action === 'copy-url') {
+        navigator.clipboard.writeText(actionBtn.dataset.url);
+        const icon = actionBtn.querySelector('.material-icons');
+        icon.textContent = 'check';
+        setTimeout(() => icon.textContent = 'content_copy', 1500);
+      } else if (action === 'amend') {
+        const jid = actionBtn.dataset.jid;
+        const meta = (window._archiveMeta || {})[jid] || {};
+        amendResearch(jid, (meta.query || '').substring(0, 120));
+      } else if (action === 'delete') {
+        deleteResearch(actionBtn.dataset.jid);
+      } else if (action === 'copy-nb-url') {
+        navigator.clipboard.writeText(actionBtn.dataset.url);
+        const icon = actionBtn.querySelector('.material-icons');
+        icon.textContent = 'check';
+        setTimeout(() => icon.textContent = 'content_copy', 1500);
+      } else if (action === 'copy-all-nb') {
+        const jid = actionBtn.dataset.jid;
+        const meta = (window._archiveMeta || {})[jid] || {};
+        const allUrls = (meta.nbUrls || []).map(u => u.url).join('\n');
+        navigator.clipboard.writeText(allUrls);
+        const icon = actionBtn.querySelector('.material-icons');
+        icon.textContent = 'check';
+        setTimeout(() => icon.textContent = 'content_copy', 1500);
+      }
+      return;
+    }
+
+    // Handle archive item expand/collapse
+    const archiveItem = event.target.closest('.archive-item');
+    if (!archiveItem || !archiveItem.closest('#archive-list')) return;
+    if (event.target.closest('button')) return;
+
+    const jobId = archiveItem.dataset.jid;
+    const docId = archiveItem.dataset.docid;
+    if (!jobId) return;
+
+    const detail = document.getElementById('archive-detail-' + jobId);
+    if (!detail) return;
+
+    const isExpanded = archiveItem.classList.contains('expanded');
+
+    // Collapse any currently expanded item
+    if (expandedArchiveId && expandedArchiveId !== jobId) {
+      const prevItem = document.getElementById('archive-item-' + expandedArchiveId);
+      const prevDetail = document.getElementById('archive-detail-' + expandedArchiveId);
+      if (prevItem) prevItem.classList.remove('expanded');
+      if (prevDetail) prevDetail.classList.remove('open');
+    }
+
+    if (isExpanded) {
+      archiveItem.classList.remove('expanded');
+      detail.classList.remove('open');
+      expandedArchiveId = null;
+    } else {
+      archiveItem.classList.add('expanded');
+      detail.classList.add('open');
+      expandedArchiveId = jobId;
+      loadArchiveAgents(jobId, docId);
+    }
+  });
+
+  async function loadArchiveAgents(jobId, docId) {
+    const container = document.getElementById('archive-agents-' + jobId);
+    if (!container) return;
+    container.innerHTML = '<div class="flex justify-center py-3"><div class="w-4 h-4 border-2 border-slate-200 border-t-primary rounded-full" style="animation:spin 0.8s linear infinite"></div></div>';
+    try {
+      const res = await fetch('/api/agents?fresh=1');
+      const data = await res.json();
+      const agents = data.agents || [];
+      agentsData = agents;
+
+      if (!docId) {
+        container.innerHTML = '<div class="flex items-center gap-2 text-[11px] text-amber-500 py-2"><span class="material-icons text-sm">info</span>No KB document uploaded for this research</div>';
+        return;
+      }
+
+      container.innerHTML = agents.map(a => {
+        const isAssigned = (a.kb_docs || []).some(d => d.id === docId);
+        const kbCount = (a.kb_docs || []).length;
+        const colorMap = { cyan: '#0dccf2', amber: '#f59e0b', violet: '#8b5cf6' };
+        const countdownKey = 'ragCountdown_' + jobId + '_' + a.slug;
+        const hasCountdown = localStorage.getItem(countdownKey);
+        let countdownActive = false;
+        if (hasCountdown) {
+          try { countdownActive = JSON.parse(hasCountdown).endTime > Date.now(); } catch(e) {}
+        }
+
+        return `<div id="archive-agent-${jobId}-${a.slug}" class="archive-agent-row" onclick="event.stopPropagation()">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-white/80 shadow-inner-chrome flex items-center justify-center flex-shrink-0">
+              <span class="material-icons text-lg" style="color:${colorMap[a.color]||'#0dccf2'}">${esc(a.icon)}</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="font-semibold text-slate-700 text-xs">${esc(a.name)}</span>
+                ${isAssigned
+                  ? '<span class="flex items-center gap-0.5 text-[10px] text-emerald-600 font-semibold"><span class="material-icons" style="font-size:12px">check_circle</span>Assigned</span>'
+                  : '<span class="text-[10px] text-slate-400">Not assigned</span>'}
+              </div>
+              <div class="text-[10px] text-slate-400">KB: ${kbCount} doc${kbCount !== 1 ? 's' : ''}</div>
+            </div>
+            <div class="flex items-center gap-2">
+              ${isAssigned ? `
+                <button onclick="event.stopPropagation();App.archiveStartChat('${esc(a.agent_id)}','${esc(a.name)}','${jobId}','${esc(a.slug)}')"
+                  id="archive-chat-btn-${jobId}-${a.slug}"
+                  class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-primary to-cyan-400 hover:opacity-90 transition-opacity ${countdownActive ? 'opacity-50 pointer-events-none' : ''}"
+                  ${countdownActive ? 'disabled' : ''}>
+                  <span class="material-icons" style="font-size:14px">chat</span>Chat
+                </button>
+                <button onclick="event.stopPropagation();App.archiveUnassign('${jobId}','${esc(a.slug)}','${esc(a.agent_id)}','${esc(docId)}')"
+                  class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors">
+                  <span class="material-icons" style="font-size:14px">link_off</span>Unassign
+                </button>
+              ` : `
+                <button onclick="event.stopPropagation();App.archiveAssign('${jobId}','${esc(a.slug)}','${esc(a.agent_id)}','${esc(docId)}')"
+                  id="archive-assign-btn-${jobId}-${a.slug}"
+                  class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-primary to-cyan-400 hover:opacity-90 transition-opacity">
+                  <span class="material-icons" style="font-size:14px">add_circle</span>Assign
+                </button>
+              `}
+            </div>
+          </div>
+          <div id="archive-countdown-${jobId}-${a.slug}" class="${countdownActive ? 'archive-countdown mt-2 flex items-center gap-2 text-[11px] text-amber-600' : 'hidden'}">
+            <span class="material-icons" style="font-size:14px">hourglass_top</span>
+            RAG indexing — <span id="archive-timer-${jobId}-${a.slug}">5:00</span> remaining
+          </div>
+        </div>`;
+      }).join('');
+
+      // Restore any active countdowns for this job
+      agents.forEach(a => {
+        const countdownKey = 'ragCountdown_' + jobId + '_' + a.slug;
+        const saved = localStorage.getItem(countdownKey);
+        if (saved) {
+          try {
+            const { endTime } = JSON.parse(saved);
+            if (endTime > Date.now()) {
+              runArchiveCountdown(jobId, a.slug, endTime);
+            } else {
+              localStorage.removeItem(countdownKey);
+            }
+          } catch(e) { localStorage.removeItem(countdownKey); }
+        }
+      });
+    } catch(e) {
+      container.innerHTML = '<p class="text-xs text-red-400 text-center py-2">Failed to load agents</p>';
+    }
+  }
+
+  async function archiveAssign(jobId, slug, agentId, docId) {
+    const btn = document.getElementById('archive-assign-btn-' + jobId + '-' + slug);
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '<div class="w-3 h-3 border-2 border-white/50 border-t-white rounded-full" style="animation:spin 0.8s linear infinite"></div> Assigning...';
+    }
+    try {
+      const res = await fetch('/api/agents/' + slug + '/attach', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ doc_id: docId, doc_name: 'Research' })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        // Start countdown
+        const endTime = Date.now() + 5 * 60 * 1000;
+        const countdownKey = 'ragCountdown_' + jobId + '_' + slug;
+        localStorage.setItem(countdownKey, JSON.stringify({ endTime, agentId }));
+        // Reload agent rows for this item
+        loadArchiveAgents(jobId, docId);
+      } else if (data.rag_not_ready) {
+        // Show inline RAG indexing message — keep button disabled
+        const row = document.getElementById('archive-agent-' + jobId + '-' + slug);
+        if (row) {
+          const cd = row.querySelector('[id^="archive-countdown-"]');
+          if (cd) {
+            cd.className = 'archive-countdown mt-2 flex items-center gap-2 text-[11px] text-amber-600';
+            cd.innerHTML = '<span class="material-icons" style="font-size:14px">hourglass_top</span> Document still indexing at ElevenLabs. Try again in a few minutes.';
+          }
+        }
+        if (btn) {
+          btn.disabled = true;
+          btn.classList.add('opacity-50');
+          btn.innerHTML = '<span class="material-icons" style="font-size:14px">hourglass_top</span>Indexing...';
+          // Re-enable after 60s so user can retry
+          setTimeout(() => {
+            btn.disabled = false;
+            btn.classList.remove('opacity-50');
+            btn.innerHTML = '<span class="material-icons" style="font-size:14px">add_circle</span>Retry';
+          }, 60000);
+        }
+      } else {
+        alert(data.error || 'Failed to assign');
+        if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons" style="font-size:14px">add_circle</span>Assign'; }
+      }
+    } catch(e) {
+      alert('Connection failed: ' + e.message);
+      if (btn) { btn.disabled = false; btn.innerHTML = '<span class="material-icons" style="font-size:14px">add_circle</span>Assign'; }
+    }
+  }
+
+  async function archiveUnassign(jobId, slug, agentId, docId) {
+    if (!confirm('Unassign this research from ' + slug + '?')) return;
+    try {
+      const res = await fetch('/api/agents/' + slug + '/kb/' + docId, { method: 'DELETE' });
+      if (res.ok) {
+        // Clear any countdown for this agent
+        const countdownKey = 'ragCountdown_' + jobId + '_' + slug;
+        localStorage.removeItem(countdownKey);
+        if (archiveCountdownTimers[countdownKey]) {
+          clearInterval(archiveCountdownTimers[countdownKey]);
+          delete archiveCountdownTimers[countdownKey];
+        }
+        // Reload agent rows
+        loadArchiveAgents(jobId, docId);
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Failed to unassign');
+      }
+    } catch(e) {
+      alert('Connection failed: ' + e.message);
+    }
+  }
+
+  function archiveStartChat(agentId, agentName, jobId, slug) {
+    // Check if countdown is active
+    const countdownKey = 'ragCountdown_' + jobId + '_' + slug;
+    const saved = localStorage.getItem(countdownKey);
+    if (saved) {
+      try {
+        const { endTime } = JSON.parse(saved);
+        if (endTime > Date.now()) {
+          alert('RAG indexing is still in progress. Please wait for the countdown to finish.');
+          return;
+        }
+      } catch(e) {}
+    }
+    startCall(agentId, agentName);
+  }
+
+  function runArchiveCountdown(jobId, slug, endTime) {
+    const countdownKey = 'ragCountdown_' + jobId + '_' + slug;
+    const countdownEl = document.getElementById('archive-countdown-' + jobId + '-' + slug);
+    const timerEl = document.getElementById('archive-timer-' + jobId + '-' + slug);
+    const chatBtn = document.getElementById('archive-chat-btn-' + jobId + '-' + slug);
+
+    if (countdownEl) {
+      countdownEl.className = 'archive-countdown mt-2 flex items-center gap-2 text-[11px] text-amber-600';
+    }
+    if (chatBtn) {
+      chatBtn.classList.add('opacity-50', 'pointer-events-none');
+      chatBtn.disabled = true;
+    }
+
+    // Clear any existing timer for this key
+    if (archiveCountdownTimers[countdownKey]) {
+      clearInterval(archiveCountdownTimers[countdownKey]);
+    }
+
+    archiveCountdownTimers[countdownKey] = setInterval(() => {
+      const remaining = Math.max(0, endTime - Date.now());
+      if (remaining <= 0) {
+        clearInterval(archiveCountdownTimers[countdownKey]);
+        delete archiveCountdownTimers[countdownKey];
+        localStorage.removeItem(countdownKey);
+        if (countdownEl) countdownEl.className = 'hidden';
+        if (chatBtn) {
+          chatBtn.classList.remove('opacity-50', 'pointer-events-none');
+          chatBtn.disabled = false;
+        }
+        return;
+      }
+      const m = Math.floor(remaining / 60000);
+      const s = Math.floor((remaining % 60000) / 1000);
+      if (timerEl) timerEl.textContent = m + ':' + String(s).padStart(2, '0');
+    }, 1000);
+  }
+
+  function restoreArchiveCountdowns() {
+    // Scan localStorage for any active archive countdowns
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('ragCountdown_')) {
+        try {
+          const { endTime } = JSON.parse(localStorage.getItem(key));
+          if (endTime <= Date.now()) {
+            localStorage.removeItem(key);
+          }
+          // Countdown will be restored when the item is expanded and agents are loaded
+        } catch(e) { localStorage.removeItem(key); }
+      }
     }
   }
 
@@ -1589,19 +1947,7 @@ const App = (function() {
     }
   }
 
-  function archiveChat(docId, docName, resultUrl) {
-    lastDocId = docId;
-    lastDocName = 'Research: ' + docName;
-    document.getElementById('result-query').textContent = docName;
-    const link = document.getElementById('result-link');
-    if (resultUrl) { link.href = resultUrl; link.style.display = 'block'; }
-    else { link.style.display = 'none'; }
-    // Hide NotebookLM section (not available from archive context)
-    const nbSection = document.getElementById('notebooklm-section');
-    if (nbSection) nbSection.classList.add('hidden');
-    renderResultAgents(true);
-    showView('result');
-  }
+  // archiveChat removed — chat now starts directly from archive expand view via archiveStartChat
 
   function copyReportUrl() {
     const link = document.getElementById('result-link');
@@ -1896,7 +2242,7 @@ const App = (function() {
   restoreReassignCountdown();
 
   /* ── Public API ── */
-  return { showView, retry, assignToAgent, startCall, endCall, archiveChat, copyReportUrl, useSuggested, forceStart, resumeProgress, viewJob, toggleReassign, deleteResearch, amendResearch, submitAmendment, filterGraph, createWatch, checkWatch, deleteWatch };
+  return { showView, retry, assignToAgent, startCall, endCall, copyReportUrl, useSuggested, forceStart, resumeProgress, viewJob, toggleReassign, deleteResearch, amendResearch, submitAmendment, filterGraph, createWatch, checkWatch, deleteWatch, archiveAssign, archiveUnassign, archiveStartChat };
 })();
 </script>
 </body>

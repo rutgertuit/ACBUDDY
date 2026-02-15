@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.elevenlabs.io/v1"
 
 
+class RagIndexNotReadyError(Exception):
+    """Raised when ElevenLabs rejects an operation because RAG indexing is in progress."""
+
+
 def _headers(api_key: str) -> dict:
     return {
         "xi-api-key": api_key,
@@ -98,6 +102,40 @@ def attach_document_to_agent(agent_id: str, doc_id: str, doc_name: str, api_key:
         agent_id, doc_id, doc_type, len(existing_kb),
     )
     resp = requests.patch(patch_url, headers=headers, json=patch_payload, timeout=30)
+    if resp.status_code == 422 and "rag_index_not_ready" in resp.text:
+        # Auto-fix: trigger both RAG index models and retry once
+        logger.warning(
+            "RAG index not ready for doc %s on agent %s — triggering indexes and retrying",
+            doc_id, agent_id,
+        )
+        trigger_all_rag_indexes(doc_id, api_key)
+        # Wait up to 60s for indexes to complete
+        import time
+        for _ in range(12):
+            time.sleep(5)
+            idx_resp = requests.get(
+                f"{BASE_URL}/convai/knowledge-base/{doc_id}/rag-index",
+                headers=headers, timeout=30,
+            )
+            if idx_resp.ok:
+                indexes = idx_resp.json().get("indexes", [])
+                if all(i.get("status") == "succeeded" for i in indexes):
+                    logger.info("All RAG indexes ready for doc %s, retrying PATCH", doc_id)
+                    break
+        # Retry the PATCH
+        resp = requests.patch(patch_url, headers=headers, json=patch_payload, timeout=30)
+
+    if not resp.ok:
+        body = resp.text[:500]
+        logger.error(
+            "PATCH agent %s failed (%s): %s",
+            agent_id, resp.status_code, body,
+        )
+        if resp.status_code == 422 and "rag_index_not_ready" in body:
+            raise RagIndexNotReadyError(
+                f"Document {doc_id} is still being indexed by ElevenLabs. "
+                "Please try again in a few minutes."
+            )
     resp.raise_for_status()
     # Verify the doc was actually added
     verify_resp = requests.get(get_url, headers=headers, timeout=30)
@@ -237,6 +275,9 @@ def attach_documents_to_agent(agent_id: str, doc_map: dict[str, str], api_key: s
     logger.info("Attached %d new documents to agent %s (total KB: %d)", len(new_docs), agent_id, len(existing_kb))
 
 
+_RAG_MODELS = ["multilingual_e5_large_instruct", "e5_mistral_7b_instruct"]
+
+
 def trigger_rag_index(doc_id: str, api_key: str, model: str = "multilingual_e5_large_instruct") -> dict:
     """Trigger RAG indexing for a KB document. Returns index status.
 
@@ -248,3 +289,20 @@ def trigger_rag_index(doc_id: str, api_key: str, model: str = "multilingual_e5_l
     result = resp.json()
     logger.info("RAG index for doc %s: status=%s", doc_id, result.get("status", "unknown"))
     return result
+
+
+def trigger_all_rag_indexes(doc_id: str, api_key: str) -> list[dict]:
+    """Trigger both RAG index models required for agent attachment.
+
+    ElevenLabs requires both multilingual_e5_large_instruct AND
+    e5_mistral_7b_instruct indexes to be ready before a doc can be
+    attached to an agent via PATCH.
+    """
+    results = []
+    for model in _RAG_MODELS:
+        try:
+            r = trigger_rag_index(doc_id, api_key, model=model)
+            results.append(r)
+        except Exception:
+            logger.exception("Failed to trigger RAG index model %s for doc %s", model, doc_id)
+    return results
