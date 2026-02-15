@@ -366,16 +366,35 @@ def _slugify(text: str, max_len: int = 60) -> str:
     return slug[:max_len].rstrip("-")
 
 
+def _notebooklm_html(title: str, md_content: str) -> str:
+    """Wrap markdown content in a minimal HTML page for NotebookLM ingestion."""
+    body = _md_to_html(md_content)
+    safe_title = html.escape(title[:120])
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{safe_title}</title>
+<style>{_CSS}</style>
+</head>
+<body>
+<header><h1>{safe_title}</h1></header>
+{body}
+</body>
+</html>"""
+
+
 def publish_notebooklm_sources(
     result: ResearchResult,
     query: str,
     job_id: str,
     bucket_name: str,
 ) -> list[dict]:
-    """Upload individual research documents as Markdown files for NotebookLM.
+    """Upload individual research documents as HTML files for NotebookLM.
 
     Each component (master synthesis, studies, Q&A, strategic analysis) becomes
-    a separate .md file in GCS under notebooklm/{job_id}/.
+    a separate .html file in GCS under notebooklm/{job_id}/.
 
     Returns list of dicts: [{"label": "...", "url": "https://..."}]
     """
@@ -394,12 +413,13 @@ def publish_notebooklm_sources(
     prefix = f"notebooklm/{job_id}"
     sources: list[dict] = []
 
-    def _upload_md(filename: str, label: str, content: str):
+    def _upload_source(filename: str, label: str, title: str, content: str):
         if not content or not content.strip():
             return
         try:
             blob = bucket.blob(f"{prefix}/{filename}")
-            blob.upload_from_string(content, content_type="text/markdown")
+            html_content = _notebooklm_html(title, content)
+            blob.upload_from_string(html_content, content_type="text/html")
             url = f"https://storage.googleapis.com/{bucket_name}/{prefix}/{filename}"
             sources.append({"label": label, "url": url})
         except Exception:
@@ -407,13 +427,17 @@ def publish_notebooklm_sources(
 
     # Master synthesis
     if result.master_synthesis:
-        md = f"# Executive Briefing: {query}\n\n{result.master_synthesis}"
-        _upload_md("00-executive-briefing.md", "Executive Briefing", md)
+        _upload_source(
+            "00-executive-briefing.html", "Executive Briefing",
+            f"Executive Briefing: {query}", result.master_synthesis,
+        )
 
     # Strategic analysis
     if result.strategic_analysis:
-        md = f"# Strategic Analysis: {query}\n\n{result.strategic_analysis}"
-        _upload_md("01-strategic-analysis.md", "Strategic Analysis", md)
+        _upload_source(
+            "01-strategic-analysis.html", "Strategic Analysis",
+            f"Strategic Analysis: {query}", result.strategic_analysis,
+        )
 
     # Individual studies
     if result.studies:
@@ -421,26 +445,34 @@ def publish_notebooklm_sources(
             if not study.synthesis:
                 continue
             slug = _slugify(study.title)
-            md = f"# Study {i}: {study.title}\n\n{study.synthesis}"
-            _upload_md(f"study-{i:02d}-{slug}.md", f"Study {i}: {study.title[:60]}", md)
+            _upload_source(
+                f"study-{i:02d}-{slug}.html", f"Study {i}: {study.title[:60]}",
+                f"Study {i}: {study.title}", study.synthesis,
+            )
 
     # Q&A clusters
     for i, cluster in enumerate(result.qa_clusters, 1):
         if not cluster.findings:
             continue
         slug = _slugify(cluster.theme)
-        md = f"# Q&A: {cluster.theme}\n\n{cluster.findings}"
-        _upload_md(f"qa-{i:02d}-{slug}.md", f"Q&A: {cluster.theme[:60]}", md)
+        _upload_source(
+            f"qa-{i:02d}-{slug}.html", f"Q&A: {cluster.theme[:60]}",
+            f"Q&A: {cluster.theme}", cluster.findings,
+        )
 
     # Q&A summary
     if result.qa_summary:
-        md = f"# Anticipated Q&A Summary: {query}\n\n{result.qa_summary}"
-        _upload_md("qa-summary.md", "Q&A Summary", md)
+        _upload_source(
+            "qa-summary.html", "Q&A Summary",
+            f"Anticipated Q&A Summary: {query}", result.qa_summary,
+        )
 
     # QUICK/STANDARD — single synthesis
     if result.final_synthesis and not result.master_synthesis:
-        md = f"# Research Synthesis: {query}\n\n{result.final_synthesis}"
-        _upload_md("synthesis.md", "Research Synthesis", md)
+        _upload_source(
+            "synthesis.html", "Research Synthesis",
+            f"Research Synthesis: {query}", result.final_synthesis,
+        )
 
     logger.info("Published %d NotebookLM sources for job %s", len(sources), job_id)
     return sources
