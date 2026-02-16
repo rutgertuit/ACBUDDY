@@ -43,10 +43,8 @@ def _tts_v3(text: str, voice_id: str, api_key: str) -> bytes:
         "text": text,
         "model_id": "eleven_v3",
         "voice_settings": {
-            "stability": 0.4,
+            "stability": 0.5,          # v3 only accepts 0.0 (Creative), 0.5 (Natural), 1.0 (Robust)
             "similarity_boost": 0.8,
-            "style": 0.6,
-            "use_speaker_boost": True,
         },
     }
     resp = requests.post(
@@ -59,6 +57,8 @@ def _tts_v3(text: str, voice_id: str, api_key: str) -> bytes:
         json=body,
         timeout=120,
     )
+    if resp.status_code != 200:
+        logger.error("TTS API error %d: %s", resp.status_code, resp.text[:300])
     resp.raise_for_status()
     return resp.content
 
