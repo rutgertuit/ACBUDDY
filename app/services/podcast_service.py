@@ -107,6 +107,7 @@ def _tts_v3_single(text: str, voice_id: str, api_key: str) -> bytes:
     body = {
         "text": text,
         "model_id": "eleven_v3",
+        "language_code": "en",          # Force English — voices default to Dutch otherwise
         "voice_settings": {
             "stability": 0.5,           # Natural — recommended 0.45-0.55 for podcasts
             "similarity_boost": 0.7,    # Clear voice match — recommended 0.65-0.75
