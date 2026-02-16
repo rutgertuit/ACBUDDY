@@ -695,6 +695,11 @@ def generate_podcast():
             if research_job:
                 update_job(job_id, podcast_status="generating", podcast_script_preview=preview)
 
+            # Save script to GCS for review
+            script_url = podcast_service.upload_podcast_script(script, job_id, bucket)
+            if script_url:
+                logger.info("Podcast script saved: %s", script_url)
+
             # Phase 2: Generate audio per speaker turn using ElevenLabs v3 TTS
             def _on_progress(current, total):
                 with _podcast_lock:
@@ -733,6 +738,7 @@ def generate_podcast():
             gcs_client.update_metadata(job_id, bucket, {
                 "podcast_url": audio_url,
                 "podcast_style": style,
+                "podcast_script_url": script_url,
             })
 
             logger.info("Podcast complete: podcast_job=%s audio_url=%s", podcast_job_id, audio_url)

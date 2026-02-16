@@ -43,8 +43,9 @@ def _tts_v3(text: str, voice_id: str, api_key: str) -> bytes:
         "text": text,
         "model_id": "eleven_v3",
         "voice_settings": {
-            "stability": 0.5,          # v3 only accepts 0.0 (Creative), 0.5 (Natural), 1.0 (Robust)
+            "stability": 0.0,          # v3: 0.0=Creative (most expressive), 0.5=Natural, 1.0=Robust
             "similarity_boost": 0.8,
+            "speed": 1.1,              # Slightly faster than default for more energy
         },
     }
     resp = requests.post(
@@ -191,6 +192,25 @@ def create_podcast(
     combined = b"".join(audio_segments)
     logger.info("Podcast audio generated: %d turns, %.1f MB", len(turns), len(combined) / 1024 / 1024)
     return combined
+
+
+def upload_podcast_script(script: str, job_id: str, bucket_name: str) -> str:
+    """Upload podcast script text to GCS and return its public URL."""
+    if not bucket_name:
+        return ""
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob_name = f"results/{job_id}_podcast_script.txt"
+        blob = bucket.blob(blob_name)
+        blob.upload_from_string(script, content_type="text/plain; charset=utf-8")
+
+        return f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
+    except Exception:
+        logger.exception("Failed to upload podcast script to GCS")
+        return ""
 
 
 def upload_podcast_audio(audio_bytes: bytes, job_id: str, bucket_name: str) -> str:
