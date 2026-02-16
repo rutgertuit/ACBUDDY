@@ -9,6 +9,15 @@ import os
 
 logger = logging.getLogger(__name__)
 
+
+def _strip_markdown_fences(text: str) -> str:
+    """Strip markdown code fences (```...```) that LLMs often wrap output in."""
+    import re
+    stripped = re.sub(r"^```[a-zA-Z]*\n?", "", text.strip())
+    stripped = re.sub(r"\n?```\s*$", "", stripped)
+    return stripped.strip()
+
+
 # Rich character voice descriptions for script generation.
 # These give the LLM concrete speech patterns, word choices, and mannerisms
 # so each character sounds unmistakably themselves.
@@ -291,6 +300,8 @@ Write the script now:"""
             contents=prompt,
         )
         script = resp.text or ""
+        # Strip markdown fences that Gemini often wraps output in
+        script = _strip_markdown_fences(script)
         logger.info("Podcast script generated: style=%s, host=%s, guest=%s, angles=%d, length=%d chars",
                      style, speaker_a, speaker_b, len(angles or []), len(script))
         return script

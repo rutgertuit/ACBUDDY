@@ -95,12 +95,20 @@ def parse_script_turns(script: str) -> list[tuple[str, str]]:
 
     Expected format — each turn starts with 'SpeakerName:' at the start of a line.
     Handles multi-line turns (text continues until the next speaker label).
+    Also handles LLM formatting quirks: **bold labels**, markdown fences, etc.
     """
+    # Strip markdown fences if present
+    cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", script.strip())
+    cleaned = re.sub(r"\n?```\s*$", "", cleaned).strip()
+
+    # Strip bold/italic markdown around speaker names: **Maya:** or *Maya:*
+    cleaned = re.sub(r"^\*{1,2}([A-Z][A-Za-z .0-9]+?)\*{1,2}:", r"\1:", cleaned, flags=re.MULTILINE)
+
     # Match lines starting with a speaker label like "Maya:" or "Professor Barnaby:"
     pattern = re.compile(r"^([A-Z][A-Za-z .0-9]+?):\s*", re.MULTILINE)
     turns: list[tuple[str, str]] = []
 
-    splits = pattern.split(script)
+    splits = pattern.split(cleaned)
     # splits = [pre-text, speaker1, text1, speaker2, text2, ...]
     # Index 0 is any text before the first speaker label (usually empty)
     i = 1
