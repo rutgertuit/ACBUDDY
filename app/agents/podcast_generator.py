@@ -267,26 +267,43 @@ RESEARCH CONTENT:
 STYLE INSTRUCTIONS:
 {style_prompts.get(style, style_prompts["curious"])}{personality_block}{angles_block}
 
+CONVERSATION DYNAMICS — THIS IS CRITICAL:
+- Turns must be SHORT: 1-3 sentences each, max 4 sentences for a key point. NO monologues.
+- Aim for 40-60 turns total (NOT 15-20 long turns). This is a rapid back-and-forth conversation.
+- Speakers REACT to each other: "Wait, say that again", "Hold on—", "Okay but—", "See, that's exactly my point"
+- Include interruptions and interjections: one speaker cuts in while the other is making a point
+- Speakers build on each other's ideas, challenge them, ask follow-up questions
+- Vary turn length: mix very short reactions (1 sentence) with slightly longer explanations (2-3 sentences)
+- NO turn should exceed 5 sentences. If a point needs more space, have the other speaker ask a follow-up.
+
+BAD example (too long, no interaction):
+  {speaker_a}: Here is my first long point about the topic. Let me explain all the details. There are five key findings. First... Second... Third... And in conclusion...
+  {speaker_b}: Now let me give my equally long response. I have many thoughts. Let me list them all...
+
+GOOD example (short, reactive, alive):
+  {speaker_a}: [serious] So here's the thing that jumped out at me — 73% failure rate.
+  {speaker_b}: [gasps] Seventy-three?
+  {speaker_a}: [deadpan] Seventy-three.
+  {speaker_b}: [laughs] Okay, that's... that's rough. But wait — what about the ones that made it?
+  {speaker_a}: [thoughtfully] That's actually the interesting part. The survivors all had one thing in common.
+  {speaker_b}: [excited] Oh, don't leave me hanging—
+
 FORMAT RULES:
 - Write as natural spoken dialogue — contractions, conversational flow, occasional humor
 - Use speaker labels like "{speaker_a}:" and "{speaker_b}:" at the start of each turn
-- Aim for 2000-4000 words (5-7 minutes when spoken)
+- Aim for 2000-4000 words across 40-60 short turns (5-7 minutes when spoken)
 - Reference specific findings, numbers, and sources from the research
-- Make it sound like a real conversation, not a script being read
-- CRITICAL: Each speaker must sound unmistakably like their character. A reader should be able to tell who's talking WITHOUT the speaker labels. Use their specific speech patterns, vocabulary, and mannerisms described in the CHARACTER VOICE sections above. Do NOT make them sound generic or interchangeable.
+- CRITICAL: Each speaker must sound unmistakably like their character. Use their specific speech patterns, vocabulary, and mannerisms from the CHARACTER VOICE sections. A reader should be able to tell who's talking WITHOUT labels.
 
 AUDIO TAGS (ElevenLabs v3):
-This script will be read aloud by an AI TTS engine that supports audio tags in [square brackets]. USE THEM liberally to make the podcast sound alive and expressive. Place tags inline BEFORE the text they modify.
+This script will be read aloud by an AI TTS engine that supports audio tags in [square brackets]. Place tags inline BEFORE the text they modify.
 
-Emotion/delivery tags: [excited], [serious], [deadpan], [playfully], [nervously], [thoughtfully], [confidently], [skeptically], [warmly], [intensely]
-Reaction tags: [laughs], [sighs], [gasps], [clears throat], [chuckles], [scoffs]
-Delivery style tags: [whispers], [emphatically], [slowly], [quickly], [softly]
+Available tags:
+  Emotion: [excited], [serious], [deadpan], [playfully], [nervously], [thoughtfully], [confidently], [skeptically], [warmly], [intensely]
+  Reactions: [laughs], [sighs], [gasps], [clears throat], [chuckles], [scoffs]
+  Delivery: [whispers], [emphatically], [slowly], [quickly], [softly]
 
-Example usage:
-  {speaker_a}: [excited] Oh, this is the part I've been waiting to get to. [laughs] The numbers are absolutely wild. [serious] But here's what most people miss...
-  {speaker_b}: [skeptically] Hold on, let me push back on that. [thoughtfully] If you look at the data from a different angle... [sighs] it tells a very different story.
-
-Use 2-4 audio tags per speaker turn on average. Match the tags to each character's personality — e.g., a deadpan character uses [sighs] and [deadpan], an enthusiastic character uses [excited] and [gasps]. Do NOT overuse them — they should feel natural, not every sentence.
+Use 1-2 audio tags per turn. Match tags to personality. Short reaction turns can be JUST a tag: "{speaker_b}: [laughs] Right?"
 
 Write the script now:"""
 
