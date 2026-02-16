@@ -1,4 +1,4 @@
-"""Static metadata for the 3 ElevenLabs conversation agents."""
+"""Static metadata for the ElevenLabs conversation agents."""
 
 from dataclasses import dataclass
 
@@ -42,6 +42,15 @@ AGENTS: dict[str, AgentProfile] = {
         color="violet",
         voice_id="DdjCTAxRdHgBQaM7jniZ",
     ),
+    "rutger": AgentProfile(
+        slug="rutger",
+        name="Rutger",
+        subtitle="The Creative Technologist",
+        personality="Jazz-swing duality, storytelling visionary, Dutch pragmatism meets Google-scale vision",
+        icon="equalizer",
+        color="emerald",
+        voice_id="3UDL95XpjDt8BT7uFojh",
+    ),
 }
 
 
@@ -51,6 +60,7 @@ def get_agent_id(slug: str, settings) -> str:
         "maya": settings.elevenlabs_agent_id_maya,
         "barnaby": settings.elevenlabs_agent_id_barnaby,
         "consultant": settings.elevenlabs_agent_id_consultant,
+        "rutger": settings.elevenlabs_agent_id_rutger,
     }
     return mapping.get(slug, "")
 
@@ -65,6 +75,7 @@ def get_voice_id(slug: str, settings) -> str:
         "maya": settings.podcast_voice_id_maya,
         "barnaby": settings.podcast_voice_id_barnaby,
         "consultant": settings.podcast_voice_id_consultant,
+        "rutger": settings.podcast_voice_id_rutger,
     }.get(slug, "")
     if override:
         return override

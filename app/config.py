@@ -29,6 +29,7 @@ class Settings:
     elevenlabs_agent_id_maya: str = ""
     elevenlabs_agent_id_barnaby: str = ""
     elevenlabs_agent_id_consultant: str = ""
+    elevenlabs_agent_id_rutger: str = ""
     elevenlabs_agent_id: str = ""  # backward-compat: set to maya's ID in __post_init__
     google_cloud_project: str = ""
     google_api_key: str = ""
@@ -44,6 +45,7 @@ class Settings:
     podcast_voice_id_maya: str = ""
     podcast_voice_id_barnaby: str = ""
     podcast_voice_id_consultant: str = ""
+    podcast_voice_id_rutger: str = ""
 
     def __post_init__(self):
         self.environment = os.getenv("ENVIRONMENT", "local")
@@ -63,6 +65,7 @@ class Settings:
         self.podcast_voice_id_maya = os.getenv("PODCAST_VOICE_ID_MAYA", "")
         self.podcast_voice_id_barnaby = os.getenv("PODCAST_VOICE_ID_BARNABY", "")
         self.podcast_voice_id_consultant = os.getenv("PODCAST_VOICE_ID_CONSULTANT", "")
+        self.podcast_voice_id_rutger = os.getenv("PODCAST_VOICE_ID_RUTGER", "")
 
         if self.environment == "local":
             self.elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY", "")
@@ -70,6 +73,7 @@ class Settings:
             self.elevenlabs_agent_id_maya = os.getenv("ELEVENLABS_AGENT_ID_MAYA", "")
             self.elevenlabs_agent_id_barnaby = os.getenv("ELEVENLABS_AGENT_ID_BARNABY", "")
             self.elevenlabs_agent_id_consultant = os.getenv("ELEVENLABS_AGENT_ID_CONSULTANT", "")
+            self.elevenlabs_agent_id_rutger = os.getenv("ELEVENLABS_AGENT_ID_RUTGER", "")
             # Backward compat: fall back to old single env var, then maya
             self.elevenlabs_agent_id = (
                 os.getenv("ELEVENLABS_AGENT_ID", "")
@@ -84,6 +88,10 @@ class Settings:
                 self.elevenlabs_agent_id_maya = _get_secret(project, "elevenlabs-agent-id-maya")
                 self.elevenlabs_agent_id_barnaby = _get_secret(project, "elevenlabs-agent-id-barnaby")
                 self.elevenlabs_agent_id_consultant = _get_secret(project, "elevenlabs-agent-id-consultant")
+                try:
+                    self.elevenlabs_agent_id_rutger = _get_secret(project, "elevenlabs-agent-id-rutger")
+                except Exception:
+                    logger.warning("No agent ID secret for rutger (optional)")
                 self.elevenlabs_agent_id = self.elevenlabs_agent_id_maya
             except Exception:
                 logger.exception("Failed to load secrets from Secret Manager")
