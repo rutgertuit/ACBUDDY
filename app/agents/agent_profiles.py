@@ -22,7 +22,7 @@ AGENTS: dict[str, AgentProfile] = {
         personality="Sharp, caffeinated, dry humor, no fluff",
         icon="bolt",
         color="cyan",
-        voice_id="y9IM13ZV0XlTa7o9qIlD",
+        voice_id="xBPWZQ2gzFKIn63cFXfT",
     ),
     "barnaby": AgentProfile(
         slug="barnaby",
