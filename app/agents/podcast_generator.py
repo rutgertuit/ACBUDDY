@@ -247,7 +247,7 @@ def generate_podcast_script(
     Returns:
         Plain text podcast script (~2000-4000 words).
     """
-    from google.genai.types import GenerateContentConfig
+    from google.genai.types import GenerateContentConfig, ThinkingConfig
 
     client = _get_client()
     content = _extract_research_content(result)
@@ -334,16 +334,31 @@ This script will be read by an AI TTS engine. The naturalness of the output depe
    - ALWAYS use contractions: "don't", "can't", "it's", "they're", "wouldn't" — NEVER "do not", "cannot"
    - Use sentence fragments freely: "Absolutely." "No way." "The thing is—" "Right, right."
    - Break complex ideas into short, cumulative sentences. NEVER write clause-heavy compound sentences.
-   - Write numbers as spoken: "seventy-three percent" not "73%", "about two thirds" not "~66%"
+   - Include natural disfluencies SPARINGLY — real humans say "I mean...", "you know?", "like," "honestly," "look," "right?" Sprinkle these in occasionally (not every turn) to break the AI-perfect cadence.
 
-2. PUNCTUATION IS YOUR PERFORMANCE SCORE — the TTS engine reads punctuation as acoustic cues:
+2. DATA NORMALIZATION — write EVERYTHING as spoken words, never symbols:
+   - Numbers: "seventy-three percent" not "73%", "about two thirds" not "~66%", "one point five billion" not "1.5B"
+   - Currencies: "forty-five dollars" not "$45", "about twelve million euros" not "€12M"
+   - Abbreviations: "doctor" not "Dr.", "versus" not "vs.", "for example" not "e.g."
+   - Units: "one hundred kilometers" not "100km", "two point five million users" not "2.5M users"
+   - URLs and technical terms: spell them out or describe them naturally
+   - Dates: "March twenty twenty-five" not "3/2025", "the early two-thousands" not "the early 2000s"
+   - NEVER use symbols like %, $, €, @, #, &, +, = in dialogue — always spell them out
+
+3. PUNCTUATION IS YOUR PERFORMANCE SCORE — the TTS engine reads punctuation as acoustic cues:
    - Ellipses (...) = hesitation, trailing off, gathering thoughts: "I mean... look, the data speaks for itself."
    - Dashes (—) = sharp pause, interruption, parenthetical: "And the result — this blew me away — was totally different."
    - Commas = breathing points. Add them where a human would pause. Remove them where words should flow together.
    - Short sentences with periods = punchy, emphatic delivery. "It failed. Hard. Every single time."
    - Question marks = natural pitch lift at end. Use rhetorical questions to create variety.
 
-3. CONVERSATION DYNAMICS:
+4. EPISODE STRUCTURE — maintain engagement through clear segments:
+   - COLD OPEN (first 2-3 turns): Start with a powerful hook — a provocative question, a startling finding, or a bold claim. NO throat-clearing, no "today we're going to discuss..." Jump straight into something compelling.
+   - INTRO (next 2-3 turns): Briefly set up the research topic and what's at stake. Quick roadmap of what's coming.
+   - MAIN CONTENT (bulk): Organize into 2-3 clear segments with natural transitions between them. Each segment explores a different aspect of the research. Signal transitions: "Okay, but here's where it gets really interesting—"
+   - WRAP-UP (last 3-4 turns): Synthesize the key takeaway. End with something memorable — a provocative question, a prediction, or a call to action. Don't just trail off.
+
+5. CONVERSATION DYNAMICS:
    - Turns must be SHORT: 1-3 sentences each, max 4 sentences for a key point. NO monologues.
    - Aim for 40-60 turns total. This is a rapid back-and-forth conversation.
    - Speakers REACT to each other: "Wait, say that again—", "Hold on.", "Okay but—", "See, that's exactly my point."
@@ -355,15 +370,17 @@ BAD example (written prose, no life):
   {speaker_a}: Here is my first long point about the topic. Let me explain all the details. There are five key findings. First, the evidence suggests that... Second, we can observe that... Third, it is important to note...
   {speaker_b}: Now let me give my equally long response. I have many thoughts about this matter. Let me list them all...
 
-GOOD example (spoken, reactive, alive):
+GOOD example (spoken, reactive, alive, with disfluencies and normalization):
   {speaker_a}: [serious] So here's the thing that jumped out at me... seventy-three percent failure rate.
   {speaker_b}: [gasps] Seventy-three?
   {speaker_a}: [deadpan] Seventy-three.
-  {speaker_b}: [chuckles] Okay, that's... that's rough. But wait — what about the ones that made it?
+  {speaker_b}: [chuckles] Okay, that's... I mean, that's rough. But wait — what about the ones that made it?
   {speaker_a}: [thoughtfully] That's actually the interesting part. The survivors all had one thing in common.
   {speaker_b}: [excited] Oh, don't leave me hanging—
   {speaker_a}: They didn't try to do everything. They picked ONE bet and went all in.
-  {speaker_b}: [interrupting] Wait, that contradicts the whole diversification argument—
+  {speaker_b}: [interrupting] Wait, but that contradicts the whole diversification argument—
+  {speaker_a}: Right? You'd think so. But look, the data's pretty clear on this. About one point two billion dollars in total investment, and the ones who spread it around... they're the ones who cratered.
+  {speaker_b}: [thoughtfully] Huh. So it's like... you know that saying about digging one well versus ten shallow holes?
 
 FORMAT RULES:
 - Use speaker labels "{speaker_a}:" and "{speaker_b}:" at the start of each turn
@@ -391,6 +408,7 @@ Write the script now:"""
             config=GenerateContentConfig(
                 temperature=0.8,
                 max_output_tokens=8000,
+                thinking_config=ThinkingConfig(thinking_budget=10000),
             ),
             contents=prompt,
         )
