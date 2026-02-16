@@ -262,10 +262,22 @@ FORMAT RULES:
 - Write as natural spoken dialogue — contractions, conversational flow, occasional humor
 - Use speaker labels like "{speaker_a}:" and "{speaker_b}:" at the start of each turn
 - Aim for 2000-4000 words (5-7 minutes when spoken)
-- DO NOT include stage directions, sound effects, or [brackets]
 - Reference specific findings, numbers, and sources from the research
 - Make it sound like a real conversation, not a script being read
 - CRITICAL: Each speaker must sound unmistakably like their character. A reader should be able to tell who's talking WITHOUT the speaker labels. Use their specific speech patterns, vocabulary, and mannerisms described in the CHARACTER VOICE sections above. Do NOT make them sound generic or interchangeable.
+
+AUDIO TAGS (ElevenLabs v3):
+This script will be read aloud by an AI TTS engine that supports audio tags in [square brackets]. USE THEM liberally to make the podcast sound alive and expressive. Place tags inline BEFORE the text they modify.
+
+Emotion/delivery tags: [excited], [serious], [deadpan], [playfully], [nervously], [thoughtfully], [confidently], [skeptically], [warmly], [intensely]
+Reaction tags: [laughs], [sighs], [gasps], [clears throat], [chuckles], [scoffs]
+Delivery style tags: [whispers], [emphatically], [slowly], [quickly], [softly]
+
+Example usage:
+  {speaker_a}: [excited] Oh, this is the part I've been waiting to get to. [laughs] The numbers are absolutely wild. [serious] But here's what most people miss...
+  {speaker_b}: [skeptically] Hold on, let me push back on that. [thoughtfully] If you look at the data from a different angle... [sighs] it tells a very different story.
+
+Use 2-4 audio tags per speaker turn on average. Match the tags to each character's personality — e.g., a deadpan character uses [sighs] and [deadpan], an enthusiastic character uses [excited] and [gasps]. Do NOT overuse them — they should feel natural, not every sentence.
 
 Write the script now:"""
 

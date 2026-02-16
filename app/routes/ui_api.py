@@ -664,12 +664,20 @@ def generate_podcast():
     if research_job:
         update_job(job_id, podcast_job_id=podcast_job_id, podcast_status="scripting", podcast_style=style)
 
+    # Build speaker → voice_id mapping for the TTS service
+    speaker_voices: dict[str, str] = {}
+    if host_profile and host_profile.get("name") and host_voice:
+        speaker_voices[host_profile["name"]] = host_voice
+    if guest_profile and guest_profile.get("name") and guest_voice:
+        speaker_voices[guest_profile["name"]] = guest_voice
+
     # Launch background thread for the full pipeline
     def _run_podcast_pipeline():
         api_key = settings.elevenlabs_api_key
+        bucket = settings.gcs_results_bucket
 
         try:
-            # Phase 1: Generate script
+            # Phase 1: Generate script (with v3 audio tags)
             script = podcast_generator.generate_podcast_script(
                 result, query, style,
                 host_profile=host_profile,
@@ -687,25 +695,29 @@ def generate_podcast():
             if research_job:
                 update_job(job_id, podcast_status="generating", podcast_script_preview=preview)
 
-            # Phase 2: Submit to ElevenLabs
-            project_id = podcast_service.create_podcast(
+            # Phase 2: Generate audio per speaker turn using ElevenLabs v3 TTS
+            def _on_progress(current, total):
+                with _podcast_lock:
+                    pj = _podcast_jobs.get(podcast_job_id)
+                    if pj:
+                        pj["phase"] = f"Generating audio... ({current}/{total} turns)"
+
+            audio_bytes = podcast_service.create_podcast(
                 script=script,
-                style=style,
+                speaker_voices=speaker_voices,
                 api_key=api_key,
-                host_voice_id=host_voice,
-                guest_voice_id=guest_voice,
+                on_progress=_on_progress,
             )
 
+            # Phase 3: Upload to GCS
             with _podcast_lock:
                 pj = _podcast_jobs.get(podcast_job_id)
                 if pj:
-                    pj["phase"] = "Processing audio..."
+                    pj["phase"] = "Uploading audio..."
 
-            # Phase 3: Poll for completion
-            podcast_service.poll_until_complete(project_id, api_key, poll_interval=10, max_wait=600)
-
-            # Phase 4: Get audio URL
-            audio_url = podcast_service.get_podcast_audio_url(project_id, api_key)
+            audio_url = podcast_service.upload_podcast_audio(audio_bytes, job_id, bucket)
+            if not audio_url:
+                raise RuntimeError("Failed to upload podcast audio to storage")
 
             with _podcast_lock:
                 pj = _podcast_jobs.get(podcast_job_id)
@@ -718,7 +730,7 @@ def generate_podcast():
                 update_job(job_id, podcast_status="completed", podcast_audio_url=audio_url)
 
             # Update GCS metadata
-            gcs_client.update_metadata(job_id, settings.gcs_results_bucket, {
+            gcs_client.update_metadata(job_id, bucket, {
                 "podcast_url": audio_url,
                 "podcast_style": style,
             })

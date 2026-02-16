@@ -1,6 +1,14 @@
-"""ElevenLabs Studio Podcasts API integration for generating audio from research."""
+"""ElevenLabs v3 TTS podcast generation.
+
+Generates podcast audio by parsing a script into speaker turns and calling
+the ElevenLabs TTS API with the eleven_v3 model per turn. Audio tags like
+[laughs], [whispers], [excited] are natively supported by v3.
+
+The resulting MP3 segments are concatenated and uploaded to GCS.
+"""
 
 import logging
+import re
 import time
 
 import requests
@@ -8,6 +16,14 @@ import requests
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.elevenlabs.io/v1"
+
+# Default voice IDs (ElevenLabs stock voices)
+_DEFAULT_HOST_VOICE = "21m00Tcm4TlvDq8ikWAM"   # Rachel
+_DEFAULT_GUEST_VOICE = "ErXwobaYiN019PkySvjV"  # Antoni
+
+# Short silence MP3 frame (~0.3s) to insert between speaker turns.
+# This is a valid MPEG audio frame of silence — avoids jarring cuts.
+_SILENCE_MS = 300
 
 
 def _headers(api_key: str) -> dict:
@@ -17,166 +33,168 @@ def _headers(api_key: str) -> dict:
     }
 
 
-# Style-specific instructions for the ElevenLabs GenFM engine
-_STYLE_INSTRUCTIONS = {
-    "executive": (
-        "Two senior analysts discuss strategic insights from research findings. "
-        "Professional, data-driven, concise. Reference specific data points and "
-        "strategic implications. Keep the tone authoritative but accessible."
-    ),
-    "curious": (
-        "An enthusiastic host interviews a knowledgeable expert about the research. "
-        "Educational, accessible, use analogies and real-world examples. "
-        "The host asks clarifying questions that the audience would want answered."
-    ),
-    "debate": (
-        "Two experts present different angles and challenge each other's assumptions. "
-        "Balanced, thought-provoking, intellectually rigorous. Each speaker brings "
-        "unique perspectives while remaining respectful and evidence-based."
-    ),
-}
+def _tts_v3(text: str, voice_id: str, api_key: str) -> bytes:
+    """Generate speech for a single text segment using eleven_v3.
+
+    Returns raw MP3 audio bytes.
+    """
+    url = f"{BASE_URL}/text-to-speech/{voice_id}"
+    body = {
+        "text": text,
+        "model_id": "eleven_v3",
+        "voice_settings": {
+            "stability": 0.4,
+            "similarity_boost": 0.8,
+            "style": 0.6,
+            "use_speaker_boost": True,
+        },
+    }
+    resp = requests.post(
+        url,
+        headers={
+            "xi-api-key": api_key,
+            "Content-Type": "application/json",
+            "Accept": "audio/mpeg",
+        },
+        json=body,
+        timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.content
 
 
-# Default voice IDs (ElevenLabs stock voices)
-_DEFAULT_HOST_VOICE = "21m00Tcm4TlvDq8ikWAM"   # Rachel
-_DEFAULT_GUEST_VOICE = "ErXwobaYiN019PkySvjV"  # Antoni
+def _generate_silence(duration_ms: int, api_key: str) -> bytes:
+    """Generate a short silence using the sound effects API.
+
+    Falls back to an empty bytes object if it fails.
+    """
+    try:
+        url = f"{BASE_URL}/sound-generation"
+        body = {
+            "text": "silence",
+            "duration_seconds": duration_ms / 1000.0,
+        }
+        resp = requests.post(
+            url,
+            headers={
+                "xi-api-key": api_key,
+                "Content-Type": "application/json",
+                "Accept": "audio/mpeg",
+            },
+            json=body,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return resp.content
+    except Exception:
+        return b""
+
+
+def parse_script_turns(script: str) -> list[tuple[str, str]]:
+    """Parse a podcast script into (speaker_name, text) turns.
+
+    Expected format — each turn starts with 'SpeakerName:' at the start of a line.
+    Handles multi-line turns (text continues until the next speaker label).
+    """
+    # Match lines starting with a speaker label like "Maya:" or "Professor Barnaby:"
+    pattern = re.compile(r"^([A-Z][A-Za-z .0-9]+?):\s*", re.MULTILINE)
+    turns: list[tuple[str, str]] = []
+
+    splits = pattern.split(script)
+    # splits = [pre-text, speaker1, text1, speaker2, text2, ...]
+    # Index 0 is any text before the first speaker label (usually empty)
+    i = 1
+    while i < len(splits) - 1:
+        speaker = splits[i].strip()
+        text = splits[i + 1].strip()
+        if speaker and text:
+            turns.append((speaker, text))
+        i += 2
+
+    return turns
 
 
 def create_podcast(
     script: str,
-    style: str,
+    speaker_voices: dict[str, str],
     api_key: str,
-    host_voice_id: str = "",
-    guest_voice_id: str = "",
-) -> str:
-    """Submit a podcast script to ElevenLabs Studio Podcasts API.
+    on_progress=None,
+) -> bytes:
+    """Generate podcast audio from a script using ElevenLabs v3 TTS.
 
-    Returns the project_id for polling status.
+    Args:
+        script: Full podcast script with 'Speaker:' labels and v3 audio tags.
+        speaker_voices: Dict mapping speaker name -> voice_id.
+        api_key: ElevenLabs API key.
+        on_progress: Optional callback(current_turn, total_turns) for status updates.
+
+    Returns:
+        Combined MP3 audio bytes.
     """
-    url = f"{BASE_URL}/studio/podcasts"
-    instructions = _STYLE_INSTRUCTIONS.get(style, _STYLE_INSTRUCTIONS["curious"])
+    turns = parse_script_turns(script)
+    if not turns:
+        raise ValueError("Could not parse any speaker turns from the script")
 
-    host_vid = host_voice_id or _DEFAULT_HOST_VOICE
-    guest_vid = guest_voice_id or _DEFAULT_GUEST_VOICE
+    logger.info("Podcast: %d turns, speakers: %s", len(turns), list(speaker_voices.keys()))
 
-    body = {
-        "model_id": "eleven_multilingual_v2",
-        "mode": {
-            "type": "conversation",
-            "conversation": {
-                "host_voice_id": host_vid,
-                "guest_voice_id": guest_vid,
-            },
-        },
-        "source": {
-            "type": "text",
-            "text": script,
-        },
-        "quality_preset": "standard",
-        "duration_scale": "default",
-        "instructions_prompt": instructions,
-    }
+    # Determine default voices for unknown speakers
+    known_voices = list(speaker_voices.values())
+    default_voices = [_DEFAULT_HOST_VOICE, _DEFAULT_GUEST_VOICE]
 
-    logger.info("Creating podcast (style=%s, script_len=%d, host=%s, guest=%s)", style, len(script), host_vid, guest_vid)
-    resp = requests.post(url, headers=_headers(api_key), json=body, timeout=60)
-    resp.raise_for_status()
-    result = resp.json()
-    project_id = result.get("project_id", result.get("id", ""))
-    logger.info("Podcast created: project_id=%s", project_id)
-    return project_id
+    audio_segments: list[bytes] = []
+    total = len(turns)
+
+    for idx, (speaker, text) in enumerate(turns):
+        if on_progress:
+            on_progress(idx + 1, total)
+
+        # Resolve voice for this speaker
+        voice_id = speaker_voices.get(speaker, "")
+        if not voice_id:
+            # Assign alternating defaults for unknown speakers
+            voice_id = default_voices[idx % 2] if not known_voices else known_voices[idx % len(known_voices)]
+
+        logger.info("Podcast turn %d/%d: %s (%d chars)", idx + 1, total, speaker, len(text))
+
+        # Generate audio for this turn
+        retries = 2
+        for attempt in range(retries + 1):
+            try:
+                audio = _tts_v3(text, voice_id, api_key)
+                audio_segments.append(audio)
+                break
+            except requests.exceptions.HTTPError as e:
+                if attempt < retries and e.response is not None and e.response.status_code == 429:
+                    wait = 5 * (attempt + 1)
+                    logger.warning("Rate limited on turn %d, waiting %ds", idx + 1, wait)
+                    time.sleep(wait)
+                else:
+                    raise
+
+    # Concatenate all MP3 segments
+    combined = b"".join(audio_segments)
+    logger.info("Podcast audio generated: %d turns, %.1f MB", len(turns), len(combined) / 1024 / 1024)
+    return combined
 
 
-def get_podcast_status(project_id: str, api_key: str) -> dict:
-    """Get the status of a podcast project.
-
-    Returns dict with at least {status, ...}.
-    Status values: 'creating', 'processing', 'completed', 'failed'.
-    """
-    url = f"{BASE_URL}/studio/podcasts/{project_id}"
-    resp = requests.get(url, headers=_headers(api_key), timeout=30)
-    resp.raise_for_status()
-    return resp.json()
-
-
-def get_podcast_audio_url(project_id: str, api_key: str) -> str:
-    """Get the audio stream URL for a completed podcast.
-
-    Chains: project -> chapters -> snapshots -> audio stream.
-    Returns the download/stream URL.
-    """
-    headers = _headers(api_key)
-
-    # Get project to find chapters
-    project = get_podcast_status(project_id, api_key)
-
-    # Try direct audio URL from project
-    if project.get("audio_url"):
-        return project["audio_url"]
-
-    # Get chapters
-    chapters_url = f"{BASE_URL}/studio/podcasts/{project_id}/chapters"
-    resp = requests.get(chapters_url, headers=headers, timeout=30)
-    resp.raise_for_status()
-    chapters = resp.json()
-
-    # Handle response format — could be list or dict with items
-    chapter_list = chapters if isinstance(chapters, list) else chapters.get("chapters", chapters.get("items", []))
-    if not chapter_list:
-        logger.warning("No chapters found for podcast %s", project_id)
+def upload_podcast_audio(audio_bytes: bytes, job_id: str, bucket_name: str) -> str:
+    """Upload podcast MP3 to GCS and return its public URL."""
+    if not bucket_name:
         return ""
 
-    chapter_id = chapter_list[0].get("chapter_id", chapter_list[0].get("id", ""))
-    if not chapter_id:
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob_name = f"results/{job_id}_podcast.mp3"
+        blob = bucket.blob(blob_name)
+        blob.upload_from_string(audio_bytes, content_type="audio/mpeg")
+
+        return f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
+    except Exception:
+        logger.exception("Failed to upload podcast audio to GCS")
         return ""
-
-    # Get snapshots for the chapter
-    snapshots_url = f"{BASE_URL}/studio/podcasts/{project_id}/chapters/{chapter_id}/snapshots"
-    resp = requests.get(snapshots_url, headers=headers, timeout=30)
-    resp.raise_for_status()
-    snapshots = resp.json()
-
-    snapshot_list = snapshots if isinstance(snapshots, list) else snapshots.get("snapshots", snapshots.get("items", []))
-    if not snapshot_list:
-        logger.warning("No snapshots found for podcast %s chapter %s", project_id, chapter_id)
-        return ""
-
-    snapshot_id = snapshot_list[0].get("snapshot_id", snapshot_list[0].get("id", ""))
-    if not snapshot_id:
-        return ""
-
-    # The stream URL
-    stream_url = (
-        f"{BASE_URL}/studio/podcasts/{project_id}/chapters/{chapter_id}"
-        f"/snapshots/{snapshot_id}/stream"
-    )
-    return stream_url
-
-
-def poll_until_complete(
-    project_id: str,
-    api_key: str,
-    poll_interval: int = 10,
-    max_wait: int = 600,
-) -> dict:
-    """Poll podcast status until completed or failed.
-
-    Returns the final status dict.
-    """
-    elapsed = 0
-    while elapsed < max_wait:
-        status = get_podcast_status(project_id, api_key)
-        state = status.get("status", "unknown")
-        logger.info("Podcast %s status: %s (elapsed=%ds)", project_id, state, elapsed)
-
-        if state in ("completed", "done"):
-            return status
-        if state in ("failed", "error"):
-            raise RuntimeError(f"Podcast generation failed: {status.get('error', 'unknown error')}")
-
-        time.sleep(poll_interval)
-        elapsed += poll_interval
-
-    raise TimeoutError(f"Podcast {project_id} did not complete within {max_wait}s")
 
 
 def list_voices(api_key: str) -> list[dict]:
