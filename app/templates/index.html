@@ -562,6 +562,105 @@ tailwind.config = {
     </div>
   </div>
 
+  <!-- ════════════ PODCAST VIEW ════════════ -->
+  <div id="view-podcast" class="view flex-1" style="overflow-y:auto">
+    <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
+      <h1 class="text-sm tracking-widest uppercase font-light text-slate-500">Lab Interface V2.0</h1>
+      <p class="text-xs text-violet-500">Generate Podcast</p>
+    </header>
+    <div class="flex-1 flex flex-col gap-4 px-2 mt-4 pb-24">
+      <div class="glass-panel rounded-xl p-4 shadow-glass border border-white/60">
+        <div class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-1">Research Topic</div>
+        <div id="podcast-query" class="text-sm text-slate-700 font-medium"></div>
+      </div>
+
+      <!-- Loading state -->
+      <div id="podcast-loading" class="flex flex-col items-center justify-center py-8">
+        <div class="w-6 h-6 border-2 border-slate-200 border-t-violet-500 rounded-full" style="animation:spin 0.8s linear infinite"></div>
+        <p class="text-xs text-slate-400 mt-2">Analyzing research for podcast...</p>
+      </div>
+
+      <!-- Podcast options (hidden until analysis complete) -->
+      <div id="podcast-styles" class="hidden space-y-4">
+        <!-- Angles section -->
+        <div id="podcast-angles-section" class="hidden">
+          <div class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Focus Angles <span class="normal-case tracking-normal font-normal">(optional)</span></div>
+          <div id="podcast-angle-cards" class="space-y-1.5"></div>
+        </div>
+
+        <!-- Style selection -->
+        <div>
+          <div class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Choose a style</div>
+          <div id="podcast-style-cards" class="space-y-2"></div>
+        </div>
+
+        <!-- Host selection -->
+        <div id="podcast-hosts-section" class="hidden">
+          <div class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Choose Hosts</div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-[10px] text-slate-400 mb-1 block">Host (Speaker 1)</label>
+              <select id="podcast-host-select" class="w-full rounded-lg border border-slate-200 bg-white/80 text-sm text-slate-700 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300"></select>
+            </div>
+            <div>
+              <label class="text-[10px] text-slate-400 mb-1 block">Guest (Speaker 2)</label>
+              <select id="podcast-guest-select" class="w-full rounded-lg border border-slate-200 bg-white/80 text-sm text-slate-700 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-300"></select>
+            </div>
+          </div>
+        </div>
+
+        <button id="podcast-generate-btn" onclick="App.submitPodcast()"
+                class="w-full py-3 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-white text-center font-semibold text-sm hover:opacity-90 transition-opacity">
+          Generate Podcast
+        </button>
+      </div>
+
+      <!-- Progress (hidden until generation starts) -->
+      <div id="podcast-progress" class="hidden">
+        <div class="glass-panel rounded-xl p-4 shadow-glass border border-white/60">
+          <div class="flex items-center gap-3">
+            <div class="w-5 h-5 border-2 border-slate-200 border-t-violet-500 rounded-full flex-shrink-0" style="animation:spin 0.8s linear infinite"></div>
+            <div>
+              <div id="podcast-phase" class="text-sm font-medium text-slate-700">Generating script...</div>
+              <div id="podcast-script-preview" class="text-[11px] text-slate-400 mt-0.5 line-clamp-2"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audio player (hidden until complete) -->
+      <div id="podcast-player" class="hidden">
+        <div class="glass-panel rounded-xl p-4 shadow-glass border border-violet-200 bg-gradient-to-br from-violet-50/60 to-purple-50/60">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="material-icons text-violet-500">podcasts</span>
+            <span class="text-sm font-semibold text-violet-700">Your Podcast is Ready</span>
+          </div>
+          <audio id="podcast-audio" controls class="w-full mb-2" style="border-radius:8px"></audio>
+          <a id="podcast-download" href="#" target="_blank"
+             class="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-[11px] font-medium text-violet-600 border border-violet-200 hover:bg-violet-50 transition-colors">
+            <span class="material-icons text-sm">download</span>Download Audio
+          </a>
+        </div>
+      </div>
+
+      <!-- Error state -->
+      <div id="podcast-error" class="hidden">
+        <div class="glass-panel rounded-xl p-4 shadow-glass border border-red-200 bg-red-50/60">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="material-icons text-red-400 text-sm">error</span>
+            <span class="text-sm font-medium text-red-600">Podcast generation failed</span>
+          </div>
+          <p id="podcast-error-msg" class="text-[11px] text-red-500"></p>
+        </div>
+      </div>
+
+      <button onclick="App.showView('archive')"
+              class="w-full py-3 rounded-xl border border-slate-200 text-slate-500 text-center font-medium text-sm hover:bg-slate-50 transition-colors">
+        Back to Archive
+      </button>
+    </div>
+  </div>
+
   <!-- ════════════ WATCHES VIEW ════════════ -->
   <div id="view-watches" class="view flex-1" style="overflow-y:auto">
     <header class="flex flex-col items-center mt-6 space-y-1 opacity-80">
@@ -1561,6 +1660,7 @@ const App = (function() {
               ${r.result_url ? `<button data-action="view-report" data-url="${escAttr(r.result_url)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-primary to-cyan-400 hover:opacity-90 transition-opacity"><span class="material-icons text-sm">open_in_new</span>View Report</button>` : ''}
               ${r.result_url ? `<button data-action="copy-url" data-url="${escAttr(r.result_url)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors"><span class="material-icons text-sm">content_copy</span>Copy URL</button>` : ''}
               <button data-action="amend" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-colors"><span class="material-icons text-sm">edit</span>Amend</button>
+              ${r.result_url ? `<button data-action="generate-podcast" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-500 hover:opacity-90 transition-opacity"><span class="material-icons text-sm">podcasts</span>Podcast</button>` : ''}
               ${isFailed && isDeep ? `<button data-action="resume" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors"><span class="material-icons text-sm">replay</span>Resume</button>` : ''}
               <button data-action="delete" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors ml-auto"><span class="material-icons text-sm">delete_forever</span>Delete</button>
             </div>
@@ -1605,6 +1705,8 @@ const App = (function() {
         const jid = actionBtn.dataset.jid;
         const meta = (window._archiveMeta || {})[jid] || {};
         amendResearch(jid, (meta.query || '').substring(0, 120));
+      } else if (action === 'generate-podcast') {
+        startPodcast(actionBtn.dataset.jid);
       } else if (action === 'resume') {
         resumeResearch(actionBtn.dataset.jid);
       } else if (action === 'delete') {
@@ -2222,6 +2324,205 @@ const App = (function() {
     if (viewingJobId && activeJobs[viewingJobId]) showView('progress');
   }
 
+  /* ── Podcast ── */
+  let podcastJobId = null;
+  let podcastResearchJobId = null;
+  let podcastSelectedStyle = null;
+  let podcastPollTimer = null;
+  let podcastHosts = [];
+
+  async function startPodcast(jobId) {
+    podcastResearchJobId = jobId;
+    podcastJobId = null;
+    podcastSelectedStyle = null;
+    podcastHosts = [];
+    const meta = (window._archiveMeta || {})[jobId] || {};
+    document.getElementById('podcast-query').textContent = (meta.query || 'Research').substring(0, 120);
+
+    // Reset visibility
+    document.getElementById('podcast-loading').classList.remove('hidden');
+    document.getElementById('podcast-styles').classList.add('hidden');
+    document.getElementById('podcast-progress').classList.add('hidden');
+    document.getElementById('podcast-player').classList.add('hidden');
+    document.getElementById('podcast-error').classList.add('hidden');
+
+    showView('podcast');
+
+    try {
+      const res = await fetch('/api/podcast/analyze', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({job_id: jobId})
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Analysis failed');
+
+      // Render angles checkboxes
+      const angles = data.angles || [];
+      const anglesSection = document.getElementById('podcast-angles-section');
+      if (angles.length > 0) {
+        const anglesContainer = document.getElementById('podcast-angle-cards');
+        anglesContainer.innerHTML = angles.map((a, i) => `
+          <label class="flex items-start gap-2.5 cursor-pointer glass-panel rounded-lg px-3 py-2.5 shadow-glass border border-white/60 hover:border-violet-200 transition-all">
+            <input type="checkbox" name="podcast-angle" value="${escAttr(a.title)}" class="mt-0.5 accent-violet-500 flex-shrink-0">
+            <div>
+              <div class="text-[12px] font-semibold text-slate-700">${esc(a.title)}</div>
+              <div class="text-[10px] text-slate-400 mt-0.5">${esc(a.description)}</div>
+            </div>
+          </label>
+        `).join('');
+        anglesSection.classList.remove('hidden');
+      } else {
+        anglesSection.classList.add('hidden');
+      }
+
+      // Render style cards
+      const container = document.getElementById('podcast-style-cards');
+      container.innerHTML = (data.styles || []).map((s, i) => `
+        <label class="podcast-style-card block cursor-pointer glass-panel rounded-xl p-4 shadow-glass border-2 transition-all ${i === 0 ? 'border-violet-400 bg-violet-50/40' : 'border-white/60 hover:border-violet-200'}">
+          <input type="radio" name="podcast-style" value="${escAttr(s.id)}" class="hidden" ${i === 0 ? 'checked' : ''}>
+          <div class="flex items-start gap-3">
+            <span class="material-icons text-violet-400 mt-0.5">${s.id === 'executive' ? 'business_center' : s.id === 'debate' ? 'forum' : 'explore'}</span>
+            <div>
+              <div class="text-sm font-semibold text-slate-700">${esc(s.name)}</div>
+              <div class="text-[11px] text-slate-500 mt-0.5">${esc(s.preview)}</div>
+            </div>
+          </div>
+        </label>
+      `).join('');
+
+      if (data.styles && data.styles.length > 0) {
+        podcastSelectedStyle = data.styles[0].id;
+      }
+
+      // Wire up radio buttons
+      container.querySelectorAll('input[name="podcast-style"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+          podcastSelectedStyle = this.value;
+          container.querySelectorAll('.podcast-style-card').forEach(card => {
+            card.classList.remove('border-violet-400', 'bg-violet-50/40');
+            card.classList.add('border-white/60');
+          });
+          this.closest('.podcast-style-card').classList.add('border-violet-400', 'bg-violet-50/40');
+          this.closest('.podcast-style-card').classList.remove('border-white/60');
+        });
+      });
+
+      // Render host selection dropdowns
+      podcastHosts = data.hosts || [];
+      const hostsSection = document.getElementById('podcast-hosts-section');
+      if (podcastHosts.length >= 2) {
+        const hostSelect = document.getElementById('podcast-host-select');
+        const guestSelect = document.getElementById('podcast-guest-select');
+        const optionsHtml = podcastHosts.map(h =>
+          `<option value="${escAttr(h.slug)}">${esc(h.name)} — ${esc(h.subtitle)}</option>`
+        ).join('');
+        hostSelect.innerHTML = optionsHtml;
+        guestSelect.innerHTML = optionsHtml;
+        // Default: first two different agents
+        hostSelect.selectedIndex = 0;
+        guestSelect.selectedIndex = 1;
+        hostsSection.classList.remove('hidden');
+      } else {
+        hostsSection.classList.add('hidden');
+      }
+
+      document.getElementById('podcast-loading').classList.add('hidden');
+      document.getElementById('podcast-styles').classList.remove('hidden');
+    } catch(e) {
+      document.getElementById('podcast-loading').classList.add('hidden');
+      document.getElementById('podcast-error').classList.remove('hidden');
+      document.getElementById('podcast-error-msg').textContent = e.message;
+    }
+  }
+
+  async function submitPodcast() {
+    if (!podcastResearchJobId || !podcastSelectedStyle) return;
+
+    const btn = document.getElementById('podcast-generate-btn');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+
+    // Collect selected angles
+    const selectedAngles = [];
+    document.querySelectorAll('input[name="podcast-angle"]:checked').forEach(cb => {
+      selectedAngles.push(cb.value);
+    });
+
+    // Collect host/guest selections
+    const hostSelect = document.getElementById('podcast-host-select');
+    const guestSelect = document.getElementById('podcast-guest-select');
+    const hostSlug = hostSelect ? hostSelect.value : '';
+    const guestSlug = guestSelect ? guestSelect.value : '';
+
+    try {
+      const res = await fetch('/api/podcast/generate', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          job_id: podcastResearchJobId,
+          style: podcastSelectedStyle,
+          host_slug: hostSlug,
+          guest_slug: guestSlug,
+          angles: selectedAngles,
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to start');
+
+      podcastJobId = data.podcast_job_id;
+      document.getElementById('podcast-styles').classList.add('hidden');
+      document.getElementById('podcast-progress').classList.remove('hidden');
+
+      // Start polling
+      pollPodcastStatus();
+    } catch(e) {
+      document.getElementById('podcast-error').classList.remove('hidden');
+      document.getElementById('podcast-error-msg').textContent = e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Generate Podcast';
+    }
+  }
+
+  function pollPodcastStatus() {
+    if (podcastPollTimer) clearInterval(podcastPollTimer);
+    podcastPollTimer = setInterval(async () => {
+      if (!podcastJobId) { clearInterval(podcastPollTimer); return; }
+      try {
+        const res = await fetch('/api/podcast/status/' + podcastJobId);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        document.getElementById('podcast-phase').textContent = data.phase || data.status || '...';
+        if (data.script_preview) {
+          document.getElementById('podcast-script-preview').textContent = data.script_preview;
+        }
+
+        if (data.status === 'completed') {
+          clearInterval(podcastPollTimer);
+          document.getElementById('podcast-progress').classList.add('hidden');
+          document.getElementById('podcast-player').classList.remove('hidden');
+
+          const audioEl = document.getElementById('podcast-audio');
+          const downloadEl = document.getElementById('podcast-download');
+          const url = data.audio_url || '';
+          if (url) {
+            audioEl.src = url;
+            downloadEl.href = url;
+          }
+        } else if (data.status === 'failed') {
+          clearInterval(podcastPollTimer);
+          document.getElementById('podcast-progress').classList.add('hidden');
+          document.getElementById('podcast-error').classList.remove('hidden');
+          document.getElementById('podcast-error-msg').textContent = data.error || 'Unknown error';
+        }
+      } catch(e) {
+        // Ignore polling errors
+      }
+    }, 3000);
+  }
+
   /* ── Init ── */
   loadStats();
   setInterval(loadStats, 30000);
@@ -2294,7 +2595,7 @@ const App = (function() {
   restoreReassignCountdown();
 
   /* ── Public API ── */
-  return { showView, retry, resumeResearch, assignToAgent, startCall, endCall, copyReportUrl, useSuggested, forceStart, resumeProgress, viewJob, toggleReassign, deleteResearch, amendResearch, submitAmendment, filterGraph, createWatch, checkWatch, deleteWatch, archiveAssign, archiveUnassign, archiveStartChat };
+  return { showView, retry, resumeResearch, assignToAgent, startCall, endCall, copyReportUrl, useSuggested, forceStart, resumeProgress, viewJob, toggleReassign, deleteResearch, amendResearch, submitAmendment, filterGraph, createWatch, checkWatch, deleteWatch, archiveAssign, archiveUnassign, archiveStartChat, startPodcast, submitPodcast };
 })();
 </script>
 </body>

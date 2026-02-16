@@ -41,6 +41,9 @@ class Settings:
     newsapi_key: str = ""
     alpha_vantage_api_key: str = ""
     crunchbase_api_key: str = ""
+    podcast_voice_id_maya: str = ""
+    podcast_voice_id_barnaby: str = ""
+    podcast_voice_id_consultant: str = ""
 
     def __post_init__(self):
         self.environment = os.getenv("ENVIRONMENT", "local")
@@ -56,6 +59,10 @@ class Settings:
         self.newsapi_key = os.getenv("NEWSAPI_KEY", "")
         self.alpha_vantage_api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "")
         self.crunchbase_api_key = os.getenv("CRUNCHBASE_API_KEY", "")
+
+        self.podcast_voice_id_maya = os.getenv("PODCAST_VOICE_ID_MAYA", "")
+        self.podcast_voice_id_barnaby = os.getenv("PODCAST_VOICE_ID_BARNABY", "")
+        self.podcast_voice_id_consultant = os.getenv("PODCAST_VOICE_ID_CONSULTANT", "")
 
         if self.environment == "local":
             self.elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY", "")

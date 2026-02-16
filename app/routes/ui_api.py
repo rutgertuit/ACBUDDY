@@ -1,17 +1,23 @@
 """Flask blueprint for the web UI and its API endpoints."""
 
 import logging
+import os
+import secrets
+import threading
 import time
 
 import requests
 from flask import Blueprint, current_app, jsonify, render_template, request
 
-from app.agents.agent_profiles import AGENTS, get_agent_id
+from app.agents.agent_profiles import AGENTS, get_agent_id, get_voice_id
 from app.models.depth import ResearchDepth
+from app.models.research_result import ResearchResult
 from app.services import elevenlabs_client, gcs_client
 from app.services import knowledge_graph as kg
 from app.services import memory_store
+from app.services import podcast_service
 from app.services import watch_store
+from app.agents import podcast_generator
 from app.services.job_tracker import JobStatus, count_active_jobs, create_job, get_job, update_job
 from app.services.research_orchestrator import run_research_for_ui, run_amendment_for_ui, resume_research_for_ui
 
@@ -512,6 +518,239 @@ def detach_kb(slug: str, doc_id: str):
     except Exception as e:
         logger.exception("Failed to detach doc %s from agent %s", doc_id, slug)
         return jsonify({"error": str(e)}), 500
+
+
+# ── Podcast endpoints ──
+
+# In-memory podcast job tracking: {podcast_job_id: {job_id, status, phase, audio_url, script_preview, style, error}}
+_podcast_jobs: dict[str, dict] = {}
+_podcast_lock = threading.Lock()
+
+
+def _load_research_result(job_id: str, settings) -> tuple[ResearchResult | None, dict | None]:
+    """Load a ResearchResult from GCS checkpoint or reconstruct from metadata."""
+    bucket = settings.gcs_results_bucket
+
+    # Try checkpoint first (DEEP pipeline)
+    checkpoint = gcs_client.load_checkpoint(job_id, bucket)
+    if checkpoint:
+        checkpoint.pop("_checkpoint_phase", None)
+        return ResearchResult.from_dict(checkpoint), None
+
+    # Fetch metadata
+    meta = gcs_client.get_result_metadata(job_id, bucket)
+    if not meta:
+        return None, None
+
+    # Try to download the HTML and extract text content for a basic result
+    result = ResearchResult(original_query=meta.get("query", ""))
+
+    # For completed research, we need the research content.
+    # The metadata itself doesn't contain full text, but the HTML blob does.
+    # Try to fetch the HTML blob and extract text.
+    try:
+        from google.cloud import storage
+        import re
+        client = storage.Client()
+        bucket_obj = client.bucket(bucket)
+        blob = bucket_obj.blob(f"results/{job_id}.html")
+        if blob.exists():
+            html_content = blob.download_as_text()
+            # Strip HTML tags to get plain text
+            text = re.sub(r"<[^>]+>", " ", html_content)
+            text = re.sub(r"\s+", " ", text).strip()
+            # Use as final_synthesis (good enough for podcast script generation)
+            result.final_synthesis = text[:50000]
+    except Exception:
+        logger.warning("Could not load HTML for job %s", job_id)
+
+    return result, meta
+
+
+@ui_api_bp.route("/api/podcast/analyze", methods=["POST"])
+def analyze_podcast():
+    """Analyze research for podcast generation. Body: {job_id} -> {storylines, styles}."""
+    data = request.get_json(silent=True) or {}
+    job_id = (data.get("job_id") or "").strip()
+
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
+
+    settings = current_app.config["SETTINGS"]
+    result, meta = _load_research_result(job_id, settings)
+
+    if result is None:
+        return jsonify({"error": "Research not found"}), 404
+
+    if not result.final_synthesis and not result.master_synthesis:
+        return jsonify({"error": "Research has no content for podcast generation"}), 400
+
+    query = result.original_query or (meta or {}).get("query", "Research")
+
+    try:
+        analysis = podcast_generator.analyze_for_podcast(result, query)
+
+        # Add available hosts from agent profiles
+        hosts = [
+            {
+                "slug": p.slug,
+                "name": p.name,
+                "subtitle": p.subtitle,
+                "personality": p.personality,
+                "icon": p.icon,
+                "color": p.color,
+            }
+            for p in AGENTS.values()
+        ]
+        analysis["hosts"] = hosts
+
+        return jsonify(analysis)
+    except Exception as e:
+        logger.exception("Podcast analysis failed for job %s", job_id)
+        return jsonify({"error": str(e)}), 500
+
+
+@ui_api_bp.route("/api/podcast/generate", methods=["POST"])
+def generate_podcast():
+    """Start podcast generation. Body: {job_id, style, host_slug?, guest_slug?, angles?} -> 202 {podcast_job_id}."""
+    data = request.get_json(silent=True) or {}
+    job_id = (data.get("job_id") or "").strip()
+    style = (data.get("style") or "").strip()
+    host_slug = (data.get("host_slug") or "").strip()
+    guest_slug = (data.get("guest_slug") or "").strip()
+    selected_angles = data.get("angles") or []
+
+    if not job_id:
+        return jsonify({"error": "job_id is required"}), 400
+    if style not in ("executive", "curious", "debate"):
+        return jsonify({"error": "style must be executive, curious, or debate"}), 400
+
+    settings = current_app.config["SETTINGS"]
+    result, meta = _load_research_result(job_id, settings)
+    if result is None:
+        return jsonify({"error": "Research not found"}), 404
+
+    query = result.original_query or (meta or {}).get("query", "Research")
+
+    # Resolve host/guest profiles and voice IDs
+    host_profile = None
+    guest_profile = None
+    host_voice = ""
+    guest_voice = ""
+
+    if host_slug and host_slug in AGENTS:
+        p = AGENTS[host_slug]
+        host_profile = {"name": p.name, "personality": p.personality}
+        host_voice = get_voice_id(host_slug, settings)
+    if guest_slug and guest_slug in AGENTS:
+        p = AGENTS[guest_slug]
+        guest_profile = {"name": p.name, "personality": p.personality}
+        guest_voice = get_voice_id(guest_slug, settings)
+
+    podcast_job_id = secrets.token_hex(6)
+    with _podcast_lock:
+        _podcast_jobs[podcast_job_id] = {
+            "job_id": job_id,
+            "status": "scripting",
+            "phase": "Generating script...",
+            "audio_url": "",
+            "script_preview": "",
+            "style": style,
+            "error": "",
+        }
+
+    # Update the research job tracker if it exists
+    research_job = get_job(job_id)
+    if research_job:
+        update_job(job_id, podcast_job_id=podcast_job_id, podcast_status="scripting", podcast_style=style)
+
+    # Launch background thread for the full pipeline
+    def _run_podcast_pipeline():
+        api_key = settings.elevenlabs_api_key
+
+        try:
+            # Phase 1: Generate script
+            script = podcast_generator.generate_podcast_script(
+                result, query, style,
+                host_profile=host_profile,
+                guest_profile=guest_profile,
+                angles=selected_angles if selected_angles else None,
+            )
+            preview = script[:200].replace("\n", " ")
+
+            with _podcast_lock:
+                pj = _podcast_jobs.get(podcast_job_id)
+                if pj:
+                    pj["status"] = "generating"
+                    pj["phase"] = "Creating podcast audio..."
+                    pj["script_preview"] = preview
+            if research_job:
+                update_job(job_id, podcast_status="generating", podcast_script_preview=preview)
+
+            # Phase 2: Submit to ElevenLabs
+            project_id = podcast_service.create_podcast(
+                script=script,
+                style=style,
+                api_key=api_key,
+                host_voice_id=host_voice,
+                guest_voice_id=guest_voice,
+            )
+
+            with _podcast_lock:
+                pj = _podcast_jobs.get(podcast_job_id)
+                if pj:
+                    pj["phase"] = "Processing audio..."
+
+            # Phase 3: Poll for completion
+            podcast_service.poll_until_complete(project_id, api_key, poll_interval=10, max_wait=600)
+
+            # Phase 4: Get audio URL
+            audio_url = podcast_service.get_podcast_audio_url(project_id, api_key)
+
+            with _podcast_lock:
+                pj = _podcast_jobs.get(podcast_job_id)
+                if pj:
+                    pj["status"] = "completed"
+                    pj["phase"] = "Done"
+                    pj["audio_url"] = audio_url
+
+            if research_job:
+                update_job(job_id, podcast_status="completed", podcast_audio_url=audio_url)
+
+            # Update GCS metadata
+            gcs_client.update_metadata(job_id, settings.gcs_results_bucket, {
+                "podcast_url": audio_url,
+                "podcast_style": style,
+            })
+
+            logger.info("Podcast complete: podcast_job=%s audio_url=%s", podcast_job_id, audio_url)
+
+        except Exception as e:
+            logger.exception("Podcast pipeline failed: podcast_job=%s", podcast_job_id)
+            with _podcast_lock:
+                pj = _podcast_jobs.get(podcast_job_id)
+                if pj:
+                    pj["status"] = "failed"
+                    pj["phase"] = "Failed"
+                    pj["error"] = str(e)
+            if research_job:
+                update_job(job_id, podcast_status="failed")
+
+    thread = threading.Thread(target=_run_podcast_pipeline, daemon=True)
+    thread.start()
+
+    logger.info("Podcast generation started: podcast_job=%s job=%s style=%s", podcast_job_id, job_id, style)
+    return jsonify({"podcast_job_id": podcast_job_id}), 202
+
+
+@ui_api_bp.route("/api/podcast/status/<podcast_job_id>")
+def podcast_status(podcast_job_id: str):
+    """Poll podcast generation status."""
+    with _podcast_lock:
+        pj = _podcast_jobs.get(podcast_job_id)
+    if pj is None:
+        return jsonify({"error": "Podcast job not found"}), 404
+    return jsonify(pj)
 
 
 # ── Knowledge Graph endpoints ──

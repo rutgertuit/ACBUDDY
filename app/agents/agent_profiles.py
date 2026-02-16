@@ -11,6 +11,7 @@ class AgentProfile:
     personality: str
     icon: str
     color: str  # Tailwind color keyword used in the UI
+    voice_id: str = ""  # ElevenLabs voice ID for podcast generation
 
 
 AGENTS: dict[str, AgentProfile] = {
@@ -47,5 +48,15 @@ def get_agent_id(slug: str, settings) -> str:
         "maya": settings.elevenlabs_agent_id_maya,
         "barnaby": settings.elevenlabs_agent_id_barnaby,
         "consultant": settings.elevenlabs_agent_id_consultant,
+    }
+    return mapping.get(slug, "")
+
+
+def get_voice_id(slug: str, settings) -> str:
+    """Return the podcast voice ID for a given agent slug, or empty string."""
+    mapping = {
+        "maya": settings.podcast_voice_id_maya,
+        "barnaby": settings.podcast_voice_id_barnaby,
+        "consultant": settings.podcast_voice_id_consultant,
     }
     return mapping.get(slug, "")
