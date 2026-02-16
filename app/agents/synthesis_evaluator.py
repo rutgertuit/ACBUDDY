@@ -11,7 +11,7 @@ from app.agents.json_utils import parse_json_response
 
 logger = logging.getLogger(__name__)
 
-APP_NAME = "acbuddy_research"
+APP_NAME = "luminary_research"
 MODEL = "gemini-2.5-flash"
 
 # Minimum overall score to skip refinement

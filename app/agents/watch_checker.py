@@ -12,7 +12,7 @@ from app.agents.deep_research import web_search
 logger = logging.getLogger(__name__)
 
 MODEL = "gemini-2.5-flash"
-APP_NAME = "acbuddy_research"
+APP_NAME = "luminary_research"
 
 CHECKER_INSTRUCTION = """You are a research watch checker. Your job is to find the latest
 information on a topic and summarize what's new or changed.

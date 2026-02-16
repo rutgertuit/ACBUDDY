@@ -17,7 +17,7 @@ from app.services import openai_client as openai_svc
 
 logger = logging.getLogger(__name__)
 
-APP_NAME = "acbuddy_research"
+APP_NAME = "luminary_research"
 MODEL = get_gemini_model()
 ROUND_MAX_RETRIES = 2
 ROUND_RETRY_BACKOFF = 5

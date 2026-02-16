@@ -18,7 +18,7 @@ from app.models.research_result import ResearchResult
 logger = logging.getLogger(__name__)
 
 MODEL = "gemini-2.5-flash"
-APP_NAME = "acbuddy_research"
+APP_NAME = "luminary_research"
 
 
 async def execute_research(

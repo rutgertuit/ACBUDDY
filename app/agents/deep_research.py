@@ -115,7 +115,7 @@ def pull_sources(urls: list[str], **_kwargs) -> str:
     for url, url_score in scored_urls:
         tag = format_authority_tag(url_score)
         try:
-            resp = requests.get(url, timeout=15, headers={"User-Agent": "ACBUDDY-Research/1.0"})
+            resp = requests.get(url, timeout=15, headers={"User-Agent": "Luminary-Research/1.0"})
             resp.raise_for_status()
             # Skip binary responses (PDFs, images, etc.) — they cause ADK serialization errors
             ctype = (resp.headers.get("content-type", "") or "").lower().split(";")[0].strip()

@@ -9,7 +9,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-APP_NAME = "acbuddy_research"
+APP_NAME = "luminary_research"
 MODEL = "gemini-2.5-flash"
 
 

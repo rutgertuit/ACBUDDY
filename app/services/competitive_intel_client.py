@@ -75,7 +75,7 @@ def _free_company_lookup(company_name: str) -> dict:
     try:
         resp = requests.get(
             "https://en.wikipedia.org/api/rest_v1/page/summary/" + company_name.replace(" ", "_"),
-            headers={"User-Agent": "ACBUDDY-Research/1.0"},
+            headers={"User-Agent": "Luminary-Research/1.0"},
             timeout=10,
         )
         if resp.ok:

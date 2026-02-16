@@ -59,7 +59,7 @@ def _yahoo_quote(ticker: str) -> dict:
         resp = requests.get(
             url,
             params={"symbols": ticker},
-            headers={"User-Agent": "ACBUDDY-Research/1.0"},
+            headers={"User-Agent": "Luminary-Research/1.0"},
             timeout=15,
         )
         resp.raise_for_status()
@@ -102,7 +102,7 @@ def search_sec_filings(company: str, filing_type: str = "10-K") -> list[dict]:
                 "dateRange": "custom",
                 "startdt": "2023-01-01",
             },
-            headers={"User-Agent": "ACBUDDY-Research research@acbuddy.io"},
+            headers={"User-Agent": "Luminary-Research research@luminary.app"},
             timeout=15,
         )
         resp.raise_for_status()
@@ -125,7 +125,7 @@ def search_sec_filings(company: str, filing_type: str = "10-K") -> list[dict]:
             resp = requests.get(
                 "https://efts.sec.gov/LATEST/search-index",
                 params={"q": f'"{company}" AND "{filing_type}"'},
-                headers={"User-Agent": "ACBUDDY-Research research@acbuddy.io"},
+                headers={"User-Agent": "Luminary-Research research@luminary.app"},
                 timeout=15,
             )
             if resp.ok:

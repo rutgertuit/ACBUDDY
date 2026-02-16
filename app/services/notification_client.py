@@ -42,8 +42,8 @@ async def _send_email(to: str, subject_topic: str, body: str) -> None:
             },
             json={
                 "personalizations": [{"to": [{"email": to}]}],
-                "from": {"email": os.getenv("SENDGRID_FROM_EMAIL", "noreply@acbuddy.app")},
-                "subject": f"ACBUDDY Watch Alert: {subject_topic[:80]}",
+                "from": {"email": os.getenv("SENDGRID_FROM_EMAIL", "noreply@luminary.app")},
+                "subject": f"Luminary Watch Alert: {subject_topic[:80]}",
                 "content": [
                     {
                         "type": "text/plain",
@@ -51,7 +51,7 @@ async def _send_email(to: str, subject_topic: str, body: str) -> None:
                             f"Changes detected for your research watch:\n\n"
                             f"Topic: {subject_topic}\n\n"
                             f"Summary of changes:\n{body}\n\n"
-                            f"— ACBUDDY Research Intelligence"
+                            f"— Luminary Research Intelligence"
                         ),
                     }
                 ],
@@ -65,7 +65,7 @@ async def _send_email(to: str, subject_topic: str, body: str) -> None:
 async def _send_webhook(url: str, watch, update) -> None:
     """POST JSON to a webhook URL (Slack/Discord/custom)."""
     payload = {
-        "text": f"ACBUDDY Watch Alert: Changes detected for *{watch.query}*",
+        "text": f"Luminary Watch Alert: Changes detected for *{watch.query}*",
         "watch_id": watch.id,
         "query": watch.query,
         "changed": update.changed,

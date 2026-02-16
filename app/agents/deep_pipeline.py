@@ -25,7 +25,7 @@ from app.services import openai_client as openai_svc
 logger = logging.getLogger(__name__)
 
 MODEL = get_gemini_model()
-APP_NAME = "acbuddy_research"
+APP_NAME = "luminary_research"
 MAX_CONCURRENT_STUDIES = 3
 MAX_CONCURRENT_QA = 3
 

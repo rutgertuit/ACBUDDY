@@ -62,7 +62,7 @@ def create_app() -> Flask:
     app.register_blueprint(ui_api_bp)
     app.register_blueprint(explore_bp)
 
-    app.logger.info("ACBUDDY started (environment=%s)", settings.environment)
+    app.logger.info("Luminary started (environment=%s)", settings.environment)
     return app
 
 

@@ -13,7 +13,7 @@ from app.agents.json_utils import parse_json_response
 logger = logging.getLogger(__name__)
 
 MODEL = "gemini-2.5-flash"
-APP_NAME = "acbuddy_research"
+APP_NAME = "luminary_research"
 
 EXTRACTOR_INSTRUCTION = """You are an entity and relationship extractor for a knowledge graph.
 

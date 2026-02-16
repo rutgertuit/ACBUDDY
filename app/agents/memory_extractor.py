@@ -12,7 +12,7 @@ from app.agents.json_utils import parse_json_response
 logger = logging.getLogger(__name__)
 
 MODEL = "gemini-2.5-flash"
-APP_NAME = "acbuddy_research"
+APP_NAME = "luminary_research"
 
 EXTRACTOR_INSTRUCTION = """You are a memory curator for a research system. Extract the most important
 and reusable findings from the research synthesis that would be valuable context for future research.

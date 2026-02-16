@@ -1,6 +1,6 @@
 ```js
 display(html`<nav class="acb-nav">
-  <a href="/" class="acb-nav-back">&larr; ACBUDDY</a>
+  <a href="/" class="acb-nav-back">&larr; Luminary</a>
   <span class="acb-nav-sep">|</span>
   <a href="/explore/">Archive</a>
   <a href="/explore/graph.html">Knowledge Graph</a>
