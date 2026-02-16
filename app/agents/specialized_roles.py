@@ -4,6 +4,7 @@ Provides: fact-checker, devil's advocate, and domain expert builders.
 """
 
 import logging
+import re
 
 from google.adk.agents import LlmAgent
 
@@ -108,7 +109,7 @@ def build_domain_expert(index: int, domain: str, model: str = "gemini-2.5-flash"
     """Build a domain-specialized researcher agent."""
     instruction = DOMAIN_EXPERT_INSTRUCTION_TEMPLATE.format(domain=domain)
     return LlmAgent(
-        name=f"domain_expert_{domain.replace(' ', '_')}_{index}",
+        name=f"domain_expert_{re.sub(r'[^a-zA-Z0-9_]', '_', domain)}_{index}",
         model=model,
         instruction=instruction,
         tools=[web_search, pull_sources],
