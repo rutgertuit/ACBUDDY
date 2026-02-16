@@ -101,8 +101,14 @@ def parse_script_turns(script: str) -> list[tuple[str, str]]:
     cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", script.strip())
     cleaned = re.sub(r"\n?```\s*$", "", cleaned).strip()
 
-    # Strip bold/italic markdown around speaker names: **Maya:** or *Maya:*
-    cleaned = re.sub(r"^\*{1,2}([A-Z][A-Za-z .0-9]+?)\*{1,2}:", r"\1:", cleaned, flags=re.MULTILINE)
+    # Strip all bold/italic markdown: **text** → text, *text* → text
+    # This handles **Maya:**, **Professor Barnaby:**, etc.
+    # Audio tags [excited] use brackets, not asterisks, so they're safe.
+    cleaned = re.sub(r"\*\*(.+?)\*\*", r"\1", cleaned)
+    cleaned = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", cleaned)
+
+    # Also strip heading markers: ## Maya: → Maya:
+    cleaned = re.sub(r"^#{1,4}\s*", "", cleaned, flags=re.MULTILINE)
 
     # Match lines starting with a speaker label like "Maya:" or "Professor Barnaby:"
     pattern = re.compile(r"^([A-Z][A-Za-z .0-9]+?):\s*", re.MULTILINE)
@@ -141,6 +147,8 @@ def create_podcast(
     """
     turns = parse_script_turns(script)
     if not turns:
+        # Log first 500 chars to help debug parsing failures
+        logger.error("Script turn parsing failed. First 500 chars:\n%s", script[:500])
         raise ValueError("Could not parse any speaker turns from the script")
 
     logger.info("Podcast: %d turns, speakers: %s", len(turns), list(speaker_voices.keys()))
