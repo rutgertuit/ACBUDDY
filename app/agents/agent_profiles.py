@@ -22,6 +22,7 @@ AGENTS: dict[str, AgentProfile] = {
         personality="Sharp, caffeinated, dry humor, no fluff",
         icon="bolt",
         color="cyan",
+        voice_id="y9IM13ZV0XlTa7o9qIlD",
     ),
     "barnaby": AgentProfile(
         slug="barnaby",
@@ -30,6 +31,7 @@ AGENTS: dict[str, AgentProfile] = {
         personality="Jack Black energy, explosive enthusiasm, sound effects",
         icon="science",
         color="amber",
+        voice_id="xL9fhtOiTXXCASQKlBiH",
     ),
     "consultant": AgentProfile(
         slug="consultant",
@@ -38,6 +40,7 @@ AGENTS: dict[str, AgentProfile] = {
         personality="McKinsey polish + malfunctioning Humanity Patch",
         icon="business_center",
         color="violet",
+        voice_id="DdjCTAxRdHgBQaM7jniZ",
     ),
 }
 
@@ -53,10 +56,17 @@ def get_agent_id(slug: str, settings) -> str:
 
 
 def get_voice_id(slug: str, settings) -> str:
-    """Return the podcast voice ID for a given agent slug, or empty string."""
-    mapping = {
+    """Return the podcast voice ID for a given agent slug.
+
+    Checks env var overrides first, then falls back to the voice_id
+    baked into the AgentProfile.
+    """
+    override = {
         "maya": settings.podcast_voice_id_maya,
         "barnaby": settings.podcast_voice_id_barnaby,
         "consultant": settings.podcast_voice_id_consultant,
-    }
-    return mapping.get(slug, "")
+    }.get(slug, "")
+    if override:
+        return override
+    profile = AGENTS.get(slug)
+    return profile.voice_id if profile else ""
