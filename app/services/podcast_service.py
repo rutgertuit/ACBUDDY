@@ -4,6 +4,7 @@ Generates podcast audio by parsing a script into speaker turns and calling
 the ElevenLabs TTS API with the eleven_v3 model per turn. Audio tags like
 [laughs], [whispers], [excited] are natively supported by v3.
 
+Long turns are chunked into ~800-char segments to prevent quality degradation.
 The resulting MP3 segments are concatenated and uploaded to GCS.
 """
 
@@ -21,9 +22,9 @@ BASE_URL = "https://api.elevenlabs.io/v1"
 _DEFAULT_HOST_VOICE = "21m00Tcm4TlvDq8ikWAM"   # Rachel
 _DEFAULT_GUEST_VOICE = "ErXwobaYiN019PkySvjV"  # Antoni
 
-# Short silence MP3 frame (~0.3s) to insert between speaker turns.
-# This is a valid MPEG audio frame of silence — avoids jarring cuts.
-_SILENCE_MS = 300
+# Max characters per TTS call — keeps quality high by preventing buffer degradation.
+# ElevenLabs docs recommend ≤800 chars per chunk for best results.
+_MAX_CHUNK_CHARS = 800
 
 
 def _headers(api_key: str) -> dict:
@@ -33,19 +34,83 @@ def _headers(api_key: str) -> dict:
     }
 
 
+def _chunk_text(text: str, max_chars: int = _MAX_CHUNK_CHARS) -> list[str]:
+    """Split text into chunks of ~max_chars, breaking at sentence boundaries.
+
+    Preserves audio tags (e.g., [laughs]) by not splitting inside brackets.
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+
+    while remaining:
+        if len(remaining) <= max_chars:
+            chunks.append(remaining)
+            break
+
+        # Find the best sentence break point within max_chars
+        candidate = remaining[:max_chars]
+
+        # Try to break at sentence end (. ! ?) followed by space
+        best_break = -1
+        for m in re.finditer(r'[.!?]\s', candidate):
+            best_break = m.end()
+
+        # Fallback: break at last comma or semicolon
+        if best_break < max_chars // 3:
+            for m in re.finditer(r'[,;]\s', candidate):
+                best_break = m.end()
+
+        # Last resort: break at last space
+        if best_break < max_chars // 3:
+            last_space = candidate.rfind(' ')
+            if last_space > max_chars // 3:
+                best_break = last_space + 1
+
+        if best_break <= 0:
+            best_break = max_chars
+
+        chunks.append(remaining[:best_break].strip())
+        remaining = remaining[best_break:].strip()
+
+    return [c for c in chunks if c]
+
+
 def _tts_v3(text: str, voice_id: str, api_key: str) -> bytes:
     """Generate speech for a single text segment using eleven_v3.
 
-    Returns raw MP3 audio bytes.
+    Returns raw MP3 audio bytes. If text exceeds _MAX_CHUNK_CHARS,
+    it is split into chunks and concatenated.
+    """
+    chunks = _chunk_text(text)
+    if len(chunks) > 1:
+        logger.info("Chunking %d-char text into %d segments", len(text), len(chunks))
+
+    audio_parts: list[bytes] = []
+    for chunk in chunks:
+        audio_parts.append(_tts_v3_single(chunk, voice_id, api_key))
+
+    return b"".join(audio_parts)
+
+
+def _tts_v3_single(text: str, voice_id: str, api_key: str) -> bytes:
+    """Generate speech for a single chunk using eleven_v3.
+
+    Voice settings tuned per ElevenLabs best practices:
+    - stability 0.5 (Natural) — avoids erratic/drunk speech at 0.0 and robotic at 1.0
+    - similarity_boost 0.7 — clear voice match without reproducing artifacts
+    - speed 1.0 — natural pace, not rushed
     """
     url = f"{BASE_URL}/text-to-speech/{voice_id}"
     body = {
         "text": text,
         "model_id": "eleven_v3",
         "voice_settings": {
-            "stability": 0.0,          # v3: 0.0=Creative (most expressive), 0.5=Natural, 1.0=Robust
-            "similarity_boost": 0.8,
-            "speed": 1.1,              # Slightly faster than default for more energy
+            "stability": 0.5,           # Natural — recommended 0.45-0.55 for podcasts
+            "similarity_boost": 0.7,    # Clear voice match — recommended 0.65-0.75
+            "speed": 1.0,              # Natural pace — recommended 0.95-1.0
         },
     }
     resp = requests.post(
@@ -62,33 +127,6 @@ def _tts_v3(text: str, voice_id: str, api_key: str) -> bytes:
         logger.error("TTS API error %d: %s", resp.status_code, resp.text[:300])
     resp.raise_for_status()
     return resp.content
-
-
-def _generate_silence(duration_ms: int, api_key: str) -> bytes:
-    """Generate a short silence using the sound effects API.
-
-    Falls back to an empty bytes object if it fails.
-    """
-    try:
-        url = f"{BASE_URL}/sound-generation"
-        body = {
-            "text": "silence",
-            "duration_seconds": duration_ms / 1000.0,
-        }
-        resp = requests.post(
-            url,
-            headers={
-                "xi-api-key": api_key,
-                "Content-Type": "application/json",
-                "Accept": "audio/mpeg",
-            },
-            json=body,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        return resp.content
-    except Exception:
-        return b""
 
 
 def parse_script_turns(script: str) -> list[tuple[str, str]]:

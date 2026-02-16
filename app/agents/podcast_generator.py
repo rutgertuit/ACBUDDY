@@ -317,7 +317,7 @@ def generate_podcast_script(
 - Close with areas of agreement and remaining open questions""",
     }
 
-    prompt = f"""You are a professional podcast scriptwriter. Write a natural, engaging podcast script.
+    prompt = f"""You are a professional podcast scriptwriter. Write a natural, engaging podcast script that sounds like REAL HUMANS talking — not AI reading text.
 
 RESEARCH QUERY: {query}
 
@@ -327,33 +327,49 @@ RESEARCH CONTENT:
 STYLE INSTRUCTIONS:
 {style_prompts.get(style, style_prompts["curious"])}{personality_block}{angles_block}{scenario_block}
 
-CONVERSATION DYNAMICS — THIS IS CRITICAL:
-- Turns must be SHORT: 1-3 sentences each, max 4 sentences for a key point. NO monologues.
-- Aim for 40-60 turns total (NOT 15-20 long turns). This is a rapid back-and-forth conversation.
-- Speakers REACT to each other: "Wait, say that again", "Hold on—", "Okay but—", "See, that's exactly my point"
-- Include interruptions and interjections: one speaker cuts in while the other is making a point
-- Speakers build on each other's ideas, challenge them, ask follow-up questions
-- Vary turn length: mix very short reactions (1 sentence) with slightly longer explanations (2-3 sentences)
-- NO turn should exceed 5 sentences. If a point needs more space, have the other speaker ask a follow-up.
+WRITING FOR THE EAR — THIS IS CRITICAL:
+This script will be read by an AI TTS engine. The naturalness of the output depends entirely on HOW you write.
 
-BAD example (too long, no interaction):
-  {speaker_a}: Here is my first long point about the topic. Let me explain all the details. There are five key findings. First... Second... Third... And in conclusion...
-  {speaker_b}: Now let me give my equally long response. I have many thoughts. Let me list them all...
+1. SPOKEN LANGUAGE, not written prose:
+   - ALWAYS use contractions: "don't", "can't", "it's", "they're", "wouldn't" — NEVER "do not", "cannot"
+   - Use sentence fragments freely: "Absolutely." "No way." "The thing is—" "Right, right."
+   - Break complex ideas into short, cumulative sentences. NEVER write clause-heavy compound sentences.
+   - Write numbers as spoken: "seventy-three percent" not "73%", "about two thirds" not "~66%"
 
-GOOD example (short, reactive, alive):
-  {speaker_a}: [serious] So here's the thing that jumped out at me — 73% failure rate.
+2. PUNCTUATION IS YOUR PERFORMANCE SCORE — the TTS engine reads punctuation as acoustic cues:
+   - Ellipses (...) = hesitation, trailing off, gathering thoughts: "I mean... look, the data speaks for itself."
+   - Dashes (—) = sharp pause, interruption, parenthetical: "And the result — this blew me away — was totally different."
+   - Commas = breathing points. Add them where a human would pause. Remove them where words should flow together.
+   - Short sentences with periods = punchy, emphatic delivery. "It failed. Hard. Every single time."
+   - Question marks = natural pitch lift at end. Use rhetorical questions to create variety.
+
+3. CONVERSATION DYNAMICS:
+   - Turns must be SHORT: 1-3 sentences each, max 4 sentences for a key point. NO monologues.
+   - Aim for 40-60 turns total. This is a rapid back-and-forth conversation.
+   - Speakers REACT to each other: "Wait, say that again—", "Hold on.", "Okay but—", "See, that's exactly my point."
+   - Include interruptions: one speaker cuts in with a dash while the other is mid-thought.
+   - Vary turn length: mix very short reactions ("Right.") with slightly longer explanations (2-3 sentences).
+   - NO turn should exceed 5 sentences. If a point needs more, have the other speaker ask a follow-up.
+
+BAD example (written prose, no life):
+  {speaker_a}: Here is my first long point about the topic. Let me explain all the details. There are five key findings. First, the evidence suggests that... Second, we can observe that... Third, it is important to note...
+  {speaker_b}: Now let me give my equally long response. I have many thoughts about this matter. Let me list them all...
+
+GOOD example (spoken, reactive, alive):
+  {speaker_a}: [serious] So here's the thing that jumped out at me... seventy-three percent failure rate.
   {speaker_b}: [gasps] Seventy-three?
   {speaker_a}: [deadpan] Seventy-three.
-  {speaker_b}: [laughs] Okay, that's... that's rough. But wait — what about the ones that made it?
+  {speaker_b}: [chuckles] Okay, that's... that's rough. But wait — what about the ones that made it?
   {speaker_a}: [thoughtfully] That's actually the interesting part. The survivors all had one thing in common.
   {speaker_b}: [excited] Oh, don't leave me hanging—
+  {speaker_a}: They didn't try to do everything. They picked ONE bet and went all in.
+  {speaker_b}: [interrupting] Wait, that contradicts the whole diversification argument—
 
 FORMAT RULES:
-- Write as natural spoken dialogue — contractions, conversational flow, occasional humor
-- Use speaker labels like "{speaker_a}:" and "{speaker_b}:" at the start of each turn
-- Aim for 2000-4000 words across 40-60 short turns (5-7 minutes when spoken)
+- Use speaker labels "{speaker_a}:" and "{speaker_b}:" at the start of each turn
+- Aim for 2000-4000 words across 40-60 short turns (five to seven minutes when spoken)
 - Reference specific findings, numbers, and sources from the research
-- CRITICAL: Each speaker must sound unmistakably like their character. Use their specific speech patterns, vocabulary, and mannerisms from the CHARACTER VOICE sections. A reader should be able to tell who's talking WITHOUT labels.
+- CRITICAL: Each speaker must sound unmistakably like their character. A reader should be able to tell who's talking WITHOUT labels.
 
 AUDIO TAGS (ElevenLabs v3):
 This script will be read aloud by an AI TTS engine that supports audio tags in [square brackets]. Place tags inline BEFORE the text they modify.
@@ -362,8 +378,10 @@ Available tags:
   Emotion: [excited], [serious], [deadpan], [playfully], [nervously], [thoughtfully], [confidently], [skeptically], [warmly], [intensely]
   Reactions: [laughs], [sighs], [gasps], [clears throat], [chuckles], [scoffs]
   Delivery: [whispers], [emphatically], [slowly], [quickly], [softly]
+  Interaction: [interrupting], [overlapping]
 
-Use 1-2 audio tags per turn. Match tags to personality. Short reaction turns can be JUST a tag: "{speaker_b}: [laughs] Right?"
+Use 1-2 audio tags per turn. Match tags to personality. Short reaction turns can be JUST a tag: "{speaker_b}: [chuckles] Right?"
+The [interrupting] and [overlapping] tags prevent robotic "ping-pong" pauses between speakers — use them for moments where one speaker cuts in naturally.
 
 Write the script now:"""
 
