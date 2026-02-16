@@ -612,13 +612,14 @@ def analyze_podcast():
 
 @ui_api_bp.route("/api/podcast/generate", methods=["POST"])
 def generate_podcast():
-    """Start podcast generation. Body: {job_id, style, host_slug?, guest_slug?, angles?} -> 202 {podcast_job_id}."""
+    """Start podcast generation. Body: {job_id, style, host_slug?, guest_slug?, angles?, scenario?} -> 202 {podcast_job_id}."""
     data = request.get_json(silent=True) or {}
     job_id = (data.get("job_id") or "").strip()
     style = (data.get("style") or "").strip()
     host_slug = (data.get("host_slug") or "").strip()
     guest_slug = (data.get("guest_slug") or "").strip()
     selected_angles = data.get("angles") or []
+    selected_scenario = data.get("scenario") or None
 
     if not job_id:
         return jsonify({"error": "job_id is required"}), 400
@@ -683,6 +684,7 @@ def generate_podcast():
                 host_profile=host_profile,
                 guest_profile=guest_profile,
                 angles=selected_angles if selected_angles else None,
+                scenario=selected_scenario,
             )
             preview = script[:200].replace("\n", " ")
 

@@ -120,14 +120,14 @@ def _extract_research_content(result) -> str:
 
 
 def analyze_for_podcast(result, query: str) -> dict:
-    """Analyze research content and generate style-specific preview descriptions.
+    """Analyze research content and generate style-specific previews + scenario suggestions.
 
     Args:
         result: ResearchResult object.
         query: Original research query.
 
     Returns:
-        {"storylines": [...], "angles": [...], "styles": [{"id", "name", "preview"}]}
+        {"storylines": [...], "angles": [...], "styles": [{"id", "name", "preview", "suggestions": [...]}]}
     """
     from google.genai.types import GenerateContentConfig
 
@@ -138,7 +138,7 @@ def analyze_for_podcast(result, query: str) -> dict:
     if len(content) > 15000:
         content = content[:15000] + "\n\n[Content truncated for analysis...]"
 
-    prompt = f"""You are a podcast content strategist. Analyze this research and create preview descriptions for 3 podcast styles.
+    prompt = f"""You are a podcast content strategist. Analyze this research and create preview descriptions and creative episode concepts for 3 podcast styles.
 
 RESEARCH QUERY: {query}
 
@@ -148,7 +148,16 @@ RESEARCH CONTENT:
 TASK:
 1. Identify the 2-3 most compelling storylines or themes from this research.
 2. Extract 3-5 debatable angles or key positions the research supports. These are perspectives or viewpoints that could be argued for or against — things that make for interesting podcast discussion. Each angle should be a clear, concise position statement.
-3. For each of the 3 podcast styles below, write a 1-2 sentence preview of what that episode would sound like. Make each preview specific to THIS research content.
+3. For each of the 3 podcast styles below:
+   a. Write a 1-2 sentence preview of what that episode would sound like. Make each preview specific to THIS research content.
+   b. Generate 3 creative SCENARIO SUGGESTIONS — each is a unique creative framing for how the two speakers could approach this topic in this style. Think of these as "episode concepts" that give the conversation a distinct angle, dynamic, or role-play.
+
+SCENARIO EXAMPLES (for a topic about "Rise & Fall of Nike"):
+- For "debate": "The Superfan vs. The Skeptic" — One speaker is a die-hard Nike loyalist who defends every move, the other sees a pattern of arrogance and missed opportunities
+- For "curious": "Grandma Explains Sneaker Culture" — The expert explains how a shoe company became a cultural force, treating the host like they've never heard of Nike
+- For "executive": "The Turnaround Memo" — Two analysts draft the board presentation for Nike's comeback strategy, debating which bets to place
+
+Each scenario should feel SPECIFIC to this research topic, entertaining, and give each speaker a clear role/position.
 
 STYLES:
 - "executive": Executive Briefing — Two analysts discuss strategic insights. Professional, data-driven.
@@ -163,25 +172,45 @@ Respond ONLY with valid JSON (no markdown fences):
     {{"title": "Another angle", "description": "Why this perspective is debatable"}}
   ],
   "styles": [
-    {{"id": "executive", "name": "Executive Briefing", "preview": "..."}},
-    {{"id": "curious", "name": "Curious Explorer", "preview": "..."}},
-    {{"id": "debate", "name": "Debate & Challenge", "preview": "..."}}
+    {{
+      "id": "executive",
+      "name": "Executive Briefing",
+      "preview": "...",
+      "suggestions": [
+        {{"title": "Short catchy name", "description": "1-2 sentence concept description", "host_angle": "Speaker 1's role/position", "guest_angle": "Speaker 2's role/position"}},
+        {{"title": "...", "description": "...", "host_angle": "...", "guest_angle": "..."}}
+      ]
+    }},
+    {{
+      "id": "curious",
+      "name": "Curious Explorer",
+      "preview": "...",
+      "suggestions": [...]
+    }},
+    {{
+      "id": "debate",
+      "name": "Debate & Challenge",
+      "preview": "...",
+      "suggestions": [...]
+    }}
   ]
 }}"""
 
     try:
         resp = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3-pro-preview",
             config=GenerateContentConfig(
-                temperature=0.7,
-                max_output_tokens=1500,
+                temperature=0.9,
+                max_output_tokens=3000,
                 response_mime_type="application/json",
             ),
             contents=prompt,
         )
         data = json.loads(resp.text)
-        logger.info("Podcast analysis complete: %d storylines, %d angles",
-                     len(data.get("storylines", [])), len(data.get("angles", [])))
+        logger.info("Podcast analysis complete: %d storylines, %d angles, suggestions per style: %s",
+                     len(data.get("storylines", [])),
+                     len(data.get("angles", [])),
+                     {s["id"]: len(s.get("suggestions", [])) for s in data.get("styles", [])})
         return data
     except Exception:
         logger.exception("Podcast analysis failed, returning defaults")
@@ -189,7 +218,7 @@ Respond ONLY with valid JSON (no markdown fences):
             "storylines": [query],
             "angles": [],
             "styles": [
-                {"id": s["id"], "name": s["name"], "preview": s["description"]}
+                {"id": s["id"], "name": s["name"], "preview": s["description"], "suggestions": []}
                 for s in PODCAST_STYLES
             ],
         }
@@ -202,6 +231,7 @@ def generate_podcast_script(
     host_profile: dict | None = None,
     guest_profile: dict | None = None,
     angles: list[str] | None = None,
+    scenario: dict | None = None,
 ) -> str:
     """Generate a full podcast script in the selected style.
 
@@ -212,6 +242,7 @@ def generate_podcast_script(
         host_profile: Optional dict with {name, personality} for the host speaker.
         guest_profile: Optional dict with {name, personality} for the guest speaker.
         angles: Optional list of angle titles to focus the discussion on.
+        scenario: Optional dict with {title, description, host_angle, guest_angle} creative framing.
 
     Returns:
         Plain text podcast script (~2000-4000 words).
@@ -249,6 +280,20 @@ def generate_podcast_script(
         angles_block = "\n\nFOCUS ANGLES (emphasize these perspectives in the discussion):\n"
         angles_block += "\n".join(f"- {a}" for a in angles)
 
+    # Build scenario framing
+    scenario_block = ""
+    if scenario and scenario.get("title"):
+        scenario_block = f"\n\nEPISODE CONCEPT — \"{scenario['title']}\":\n{scenario.get('description', '')}"
+        if scenario.get("host_angle"):
+            scenario_block += f"\n{speaker_a}'s ROLE in this concept: {scenario['host_angle']}"
+        if scenario.get("guest_angle"):
+            scenario_block += f"\n{speaker_b}'s ROLE in this concept: {scenario['guest_angle']}"
+        scenario_block += (
+            "\n\nThis episode concept defines HOW the speakers approach the topic. "
+            "Each speaker should fully commit to their assigned role/position throughout the conversation. "
+            "The concept should drive the dynamic — it's not just a label, it shapes every exchange."
+        )
+
     style_prompts = {
         "executive": f"""Write a podcast script as a professional briefing between two senior analysts ({speaker_a} and {speaker_b}).
 - Open with a concise hook about why this research matters NOW
@@ -280,7 +325,7 @@ RESEARCH CONTENT:
 {content}
 
 STYLE INSTRUCTIONS:
-{style_prompts.get(style, style_prompts["curious"])}{personality_block}{angles_block}
+{style_prompts.get(style, style_prompts["curious"])}{personality_block}{angles_block}{scenario_block}
 
 CONVERSATION DYNAMICS — THIS IS CRITICAL:
 - Turns must be SHORT: 1-3 sentences each, max 4 sentences for a key point. NO monologues.
@@ -324,7 +369,7 @@ Write the script now:"""
 
     try:
         resp = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3-pro-preview",
             config=GenerateContentConfig(
                 temperature=0.8,
                 max_output_tokens=8000,
@@ -334,8 +379,9 @@ Write the script now:"""
         script = resp.text or ""
         # Strip markdown fences that Gemini often wraps output in
         script = _strip_markdown_fences(script)
-        logger.info("Podcast script generated: style=%s, host=%s, guest=%s, angles=%d, length=%d chars",
-                     style, speaker_a, speaker_b, len(angles or []), len(script))
+        logger.info("Podcast script generated: style=%s, host=%s, guest=%s, angles=%d, scenario=%s, length=%d chars",
+                     style, speaker_a, speaker_b, len(angles or []),
+                     (scenario or {}).get("title", "none"), len(script))
         return script
     except Exception:
         logger.exception("Podcast script generation failed")

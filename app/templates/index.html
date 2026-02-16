@@ -594,6 +594,12 @@ tailwind.config = {
           <div id="podcast-style-cards" class="space-y-2"></div>
         </div>
 
+        <!-- Scenario suggestions (shown after style selection) -->
+        <div id="podcast-suggestions-section" class="hidden">
+          <div class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Episode Concept <span class="normal-case tracking-normal font-normal">(optional)</span></div>
+          <div id="podcast-suggestion-cards" class="space-y-1.5"></div>
+        </div>
+
         <!-- Host selection -->
         <div id="podcast-hosts-section" class="hidden">
           <div class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Choose Hosts</div>
@@ -2330,12 +2336,16 @@ const App = (function() {
   let podcastSelectedStyle = null;
   let podcastPollTimer = null;
   let podcastHosts = [];
+  let podcastStylesData = [];
+  let podcastSelectedScenario = null;
 
   async function startPodcast(jobId) {
     podcastResearchJobId = jobId;
     podcastJobId = null;
     podcastSelectedStyle = null;
     podcastHosts = [];
+    podcastStylesData = [];
+    podcastSelectedScenario = null;
     const meta = (window._archiveMeta || {})[jobId] || {};
     document.getElementById('podcast-query').textContent = (meta.query || 'Research').substring(0, 120);
 
@@ -2377,8 +2387,9 @@ const App = (function() {
       }
 
       // Render style cards
+      podcastStylesData = data.styles || [];
       const container = document.getElementById('podcast-style-cards');
-      container.innerHTML = (data.styles || []).map((s, i) => `
+      container.innerHTML = podcastStylesData.map((s, i) => `
         <label class="podcast-style-card block cursor-pointer glass-panel rounded-xl p-4 shadow-glass border-2 transition-all ${i === 0 ? 'border-violet-400 bg-violet-50/40' : 'border-white/60 hover:border-violet-200'}">
           <input type="radio" name="podcast-style" value="${escAttr(s.id)}" class="hidden" ${i === 0 ? 'checked' : ''}>
           <div class="flex items-start gap-3">
@@ -2391,20 +2402,23 @@ const App = (function() {
         </label>
       `).join('');
 
-      if (data.styles && data.styles.length > 0) {
-        podcastSelectedStyle = data.styles[0].id;
+      if (podcastStylesData.length > 0) {
+        podcastSelectedStyle = podcastStylesData[0].id;
+        renderPodcastSuggestions(podcastSelectedStyle);
       }
 
       // Wire up radio buttons
       container.querySelectorAll('input[name="podcast-style"]').forEach(radio => {
         radio.addEventListener('change', function() {
           podcastSelectedStyle = this.value;
+          podcastSelectedScenario = null;
           container.querySelectorAll('.podcast-style-card').forEach(card => {
             card.classList.remove('border-violet-400', 'bg-violet-50/40');
             card.classList.add('border-white/60');
           });
           this.closest('.podcast-style-card').classList.add('border-violet-400', 'bg-violet-50/40');
           this.closest('.podcast-style-card').classList.remove('border-white/60');
+          renderPodcastSuggestions(this.value);
         });
       });
 
@@ -2436,6 +2450,64 @@ const App = (function() {
     }
   }
 
+  function renderPodcastSuggestions(styleId) {
+    const section = document.getElementById('podcast-suggestions-section');
+    const cardsEl = document.getElementById('podcast-suggestion-cards');
+    const styleData = podcastStylesData.find(s => s.id === styleId);
+    const suggestions = (styleData && styleData.suggestions) || [];
+
+    if (suggestions.length === 0) {
+      section.classList.add('hidden');
+      podcastSelectedScenario = null;
+      return;
+    }
+
+    cardsEl.innerHTML = suggestions.map((sg, i) => `
+      <label class="podcast-suggestion-card flex items-start gap-2.5 cursor-pointer glass-panel rounded-lg px-3 py-2.5 shadow-glass border-2 border-white/60 hover:border-violet-200 transition-all">
+        <input type="radio" name="podcast-scenario" value="${i}" class="hidden">
+        <div class="flex-1">
+          <div class="text-[12px] font-semibold text-slate-700">${esc(sg.title)}</div>
+          <div class="text-[10px] text-slate-400 mt-0.5">${esc(sg.description)}</div>
+          <div class="flex gap-3 mt-1">
+            <span class="text-[9px] text-violet-500 font-medium">${esc(sg.host_angle || '')}</span>
+            <span class="text-[9px] text-slate-300">vs.</span>
+            <span class="text-[9px] text-amber-600 font-medium">${esc(sg.guest_angle || '')}</span>
+          </div>
+        </div>
+      </label>
+    `).join('');
+
+    // Wire up scenario radio buttons
+    cardsEl.querySelectorAll('input[name="podcast-scenario"]').forEach(radio => {
+      radio.addEventListener('change', function() {
+        const idx = parseInt(this.value);
+        podcastSelectedScenario = suggestions[idx] || null;
+        cardsEl.querySelectorAll('.podcast-suggestion-card').forEach(card => {
+          card.classList.remove('border-violet-400', 'bg-violet-50/30');
+          card.classList.add('border-white/60');
+        });
+        this.closest('.podcast-suggestion-card').classList.add('border-violet-400', 'bg-violet-50/30');
+        this.closest('.podcast-suggestion-card').classList.remove('border-white/60');
+      });
+    });
+
+    // Allow deselect by clicking a selected card again
+    cardsEl.querySelectorAll('.podcast-suggestion-card').forEach(card => {
+      card.addEventListener('click', function(e) {
+        const radio = this.querySelector('input[name="podcast-scenario"]');
+        if (radio.checked && podcastSelectedScenario) {
+          e.preventDefault();
+          radio.checked = false;
+          podcastSelectedScenario = null;
+          this.classList.remove('border-violet-400', 'bg-violet-50/30');
+          this.classList.add('border-white/60');
+        }
+      });
+    });
+
+    section.classList.remove('hidden');
+  }
+
   async function submitPodcast() {
     if (!podcastResearchJobId || !podcastSelectedStyle) return;
 
@@ -2465,6 +2537,7 @@ const App = (function() {
           host_slug: hostSlug,
           guest_slug: guestSlug,
           angles: selectedAngles,
+          scenario: podcastSelectedScenario || null,
         })
       });
       const data = await res.json();
