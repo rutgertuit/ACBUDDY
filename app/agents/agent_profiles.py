@@ -49,7 +49,7 @@ AGENTS: dict[str, AgentProfile] = {
         personality="Jazz-swing duality, storytelling visionary, Dutch pragmatism meets Google-scale vision",
         icon="equalizer",
         color="emerald",
-        voice_id="3UDL95XpjDt8BT7uFojh",
+        voice_id="j6so4swoRyQ5hVHEur0M",
     ),
 }
 
