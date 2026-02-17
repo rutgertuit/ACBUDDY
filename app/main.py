@@ -1,5 +1,7 @@
 import logging
 import os
+import signal
+import sys
 
 from flask import Flask
 
@@ -62,8 +64,50 @@ def create_app() -> Flask:
     app.register_blueprint(ui_api_bp)
     app.register_blueprint(explore_bp)
 
+    # Register SIGTERM handler for graceful shutdown
+    _setup_sigterm_handler(app)
+
     app.logger.info("Luminary started (environment=%s)", settings.environment)
     return app
+
+
+def _setup_sigterm_handler(app: Flask) -> None:
+    """Register SIGTERM handler to checkpoint running DEEP jobs before shutdown.
+
+    Cloud Run sends SIGTERM when recycling instances. We get ~10s to save state.
+    This marks running DEEP jobs as interrupted in GCS metadata so the UI can
+    offer a resume button instead of silently losing the job.
+    """
+    def _on_sigterm(signum, frame):
+        logger = logging.getLogger(__name__)
+        logger.info("SIGTERM received — checkpointing running DEEP jobs")
+
+        try:
+            from app.services.job_tracker import get_running_deep_jobs
+            from app.services import gcs_client
+
+            settings = app.config.get("SETTINGS")
+            bucket = settings.gcs_results_bucket if settings else ""
+            deep_jobs = get_running_deep_jobs()
+
+            for job in deep_jobs:
+                try:
+                    # Update GCS metadata so archive shows it as interrupted
+                    if bucket:
+                        gcs_client.update_metadata(job.job_id, bucket, {
+                            "status": "interrupted",
+                            "error": "Server shutdown during research (SIGTERM). Resume available.",
+                        })
+                    logger.info("Marked job %s as interrupted", job.job_id)
+                except Exception:
+                    logger.exception("Failed to mark job %s as interrupted", job.job_id)
+        except Exception:
+            logger.exception("SIGTERM handler error")
+
+        # Re-raise to let gunicorn handle normal shutdown
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
 
 
 def _setup_logging(app: Flask) -> None:

@@ -39,6 +39,12 @@ class JobInfo:
     research_stats: dict = field(default_factory=dict)
     # NotebookLM individual source URLs
     notebooklm_urls: list = field(default_factory=list)
+    # Podcast generation
+    podcast_job_id: str = ""
+    podcast_status: str = ""  # analyzing/scripting/generating/completed/failed
+    podcast_style: str = ""
+    podcast_audio_url: str = ""
+    podcast_script_preview: str = ""
     _last_phase_key: str = ""
 
 
@@ -132,3 +138,12 @@ def count_active_jobs() -> int:
             1 for j in _jobs.values()
             if j.status in (JobStatus.PENDING, JobStatus.RUNNING)
         )
+
+
+def get_running_deep_jobs() -> list[JobInfo]:
+    """Return all DEEP jobs currently in RUNNING status."""
+    with _lock:
+        return [
+            j for j in _jobs.values()
+            if j.status == JobStatus.RUNNING and j.depth.upper() == "DEEP"
+        ]

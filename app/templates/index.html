@@ -1648,7 +1648,8 @@ const App = (function() {
         const jid = r.job_id || '';
         const nbUrls = r.notebooklm_urls || [];
         const isFailed = r.status === 'failed';
-        const isOrphaned = r.status === 'running' && r.has_checkpoint;
+        const isInterrupted = r.status === 'interrupted';
+        const isOrphaned = (r.status === 'running' && r.has_checkpoint) || isInterrupted;
         const isDeep = (r.depth || '').toUpperCase() === 'DEEP';
         window._archiveMeta[jid] = { docId, resultUrl: r.result_url || '', query: r.query || '', nbUrls };
         return `<div id="archive-item-${esc(jid)}" class="archive-item glass-panel rounded-xl shadow-glass border border-white/60" data-jid="${escAttr(jid)}" data-docid="${escAttr(docId)}">
