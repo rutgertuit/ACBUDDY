@@ -1097,8 +1097,9 @@ const App = (function() {
         if (!res.ok) {
           if (res.status === 404) {
             removeActiveJob(jobId);
-            if (currentView === 'progress' && !viewingJobId) {
+            if (jobId === viewingJobId && currentView === 'progress') {
               document.getElementById('error-msg').textContent = 'Research session was lost (server restarted). Please start a new one.';
+              document.getElementById('resume-btn').classList.add('hidden');
               showView('error');
             }
           }
@@ -1157,12 +1158,12 @@ const App = (function() {
             setTimeout(() => showView('result'), 600);
           }
           removeActiveJob(jobId);
-        } else if (data.status === 'failed') {
+        } else if (data.status === 'failed' || data.status === 'lost') {
           if (jobId === viewingJobId && currentView === 'progress') {
             document.getElementById('error-msg').textContent = data.error || 'An unknown error occurred';
-            // Show resume button for DEEP jobs
+            // Show resume button for DEEP jobs or lost jobs with checkpoint
             const resumeBtn = document.getElementById('resume-btn');
-            if (job.depth === 'DEEP') {
+            if (job.depth === 'DEEP' || data.has_checkpoint) {
               resumeBtn.classList.remove('hidden');
               resumeBtn.dataset.jobId = jobId;
             } else {
@@ -1647,6 +1648,7 @@ const App = (function() {
         const jid = r.job_id || '';
         const nbUrls = r.notebooklm_urls || [];
         const isFailed = r.status === 'failed';
+        const isOrphaned = r.status === 'running' && r.has_checkpoint;
         const isDeep = (r.depth || '').toUpperCase() === 'DEEP';
         window._archiveMeta[jid] = { docId, resultUrl: r.result_url || '', query: r.query || '', nbUrls };
         return `<div id="archive-item-${esc(jid)}" class="archive-item glass-panel rounded-xl shadow-glass border border-white/60" data-jid="${escAttr(jid)}" data-docid="${escAttr(docId)}">
@@ -1656,6 +1658,7 @@ const App = (function() {
               <div class="flex flex-wrap gap-2 text-[11px] text-slate-400 mt-1">
                 <span class="bg-primary/10 text-primary px-2 py-0.5 rounded-md font-semibold">${esc(r.depth||'')}</span>
                 ${isFailed ? '<span class="bg-red-100 text-red-500 px-2 py-0.5 rounded-md font-semibold">Failed</span>' : ''}
+                ${isOrphaned ? '<span class="bg-amber-100 text-amber-600 px-2 py-0.5 rounded-md font-semibold">Interrupted</span>' : ''}
                 ${studies ? '<span>'+studies+'</span>' : ''}
                 ${hoursText ? '<span class="text-rose-400">'+hoursText+'</span>' : ''}
                 ${date ? '<span>'+date+'</span>' : ''}
@@ -1669,7 +1672,7 @@ const App = (function() {
               ${r.result_url ? `<button data-action="copy-url" data-url="${escAttr(r.result_url)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors"><span class="material-icons text-sm">content_copy</span>Copy URL</button>` : ''}
               <button data-action="amend" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200 transition-colors"><span class="material-icons text-sm">edit</span>Amend</button>
               ${r.result_url ? `<button data-action="generate-podcast" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-gradient-to-r from-violet-500 to-purple-500 hover:opacity-90 transition-opacity"><span class="material-icons text-sm">podcasts</span>Podcast</button>` : ''}
-              ${isFailed && isDeep ? `<button data-action="resume" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors"><span class="material-icons text-sm">replay</span>Resume</button>` : ''}
+              ${(isFailed && isDeep) || isOrphaned ? `<button data-action="resume" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors"><span class="material-icons text-sm">replay</span>Resume</button>` : ''}
               <button data-action="delete" data-jid="${escAttr(jid)}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 border border-slate-200 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors ml-auto"><span class="material-icons text-sm">delete_forever</span>Delete</button>
             </div>
             ${nbUrls.length ? `

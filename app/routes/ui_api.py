@@ -210,10 +210,10 @@ def resume_research():
     if not checkpoint:
         return jsonify({"error": "No checkpoint found for this job"}), 404
 
-    # Verify job is in failed state (or lost from memory after restart)
+    # Verify job is resumable: failed, or lost from memory after restart
     job = get_job(job_id)
-    if job and job.status not in (JobStatus.FAILED,):
-        return jsonify({"error": f"Job is {job.status.value}, not failed"}), 400
+    if job and job.status == JobStatus.COMPLETED:
+        return jsonify({"error": "Job already completed"}), 400
 
     checkpoint_phase = checkpoint.get("_checkpoint_phase", "unknown")
 
@@ -239,6 +239,24 @@ def job_status(job_id: str):
     """Poll status of a research job."""
     job = get_job(job_id)
     if job is None:
+        # Job not in memory — check GCS for a checkpoint (instance may have restarted)
+        settings = current_app.config["SETTINGS"]
+        bucket = settings.gcs_results_bucket
+        checkpoint = gcs_client.load_checkpoint(job_id, bucket) if bucket else None
+        if checkpoint:
+            cp_phase = checkpoint.get("_checkpoint_phase", "unknown")
+            meta = gcs_client.get_result_metadata(job_id, bucket)
+            query = meta.get("query", "") if meta else ""
+            return jsonify({
+                "job_id": job_id,
+                "query": query,
+                "depth": "DEEP",
+                "status": "lost",
+                "phase": f"Lost after {cp_phase} (server restarted)",
+                "has_checkpoint": True,
+                "checkpoint_phase": cp_phase,
+                "error": "Server restarted during research. You can resume from the last checkpoint.",
+            })
         return jsonify({"error": "Job not found"}), 404
 
     return jsonify({
@@ -266,7 +284,16 @@ def job_status(job_id: str):
 def archive():
     """List past research results from GCS metadata."""
     settings = current_app.config["SETTINGS"]
-    results = gcs_client.list_results_metadata(settings.gcs_results_bucket)
+    bucket = settings.gcs_results_bucket
+    results = gcs_client.list_results_metadata(bucket)
+
+    # Mark orphaned DEEP jobs (have checkpoint but not completed/failed)
+    checkpoint_ids = gcs_client.list_checkpoint_job_ids(bucket)
+    for r in results:
+        jid = r.get("job_id", "")
+        if jid in checkpoint_ids and r.get("status") != "completed":
+            r["has_checkpoint"] = True
+
     return jsonify({"results": results})
 
 

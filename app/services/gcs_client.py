@@ -547,6 +547,30 @@ def load_checkpoint(job_id: str, bucket_name: str) -> dict | None:
         return None
 
 
+def list_checkpoint_job_ids(bucket_name: str) -> set[str]:
+    """Return set of job_ids that have checkpoint blobs in GCS."""
+    if not bucket_name:
+        return set()
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blobs = bucket.list_blobs(prefix="results/", delimiter="/")
+        ids = set()
+        for blob in blobs:
+            name = blob.name
+            if name.endswith("_checkpoint.json"):
+                # results/{job_id}_checkpoint.json → extract job_id
+                jid = name.removeprefix("results/").removesuffix("_checkpoint.json")
+                if jid:
+                    ids.add(jid)
+        return ids
+    except Exception:
+        logger.exception("Failed to list checkpoint job IDs")
+        return set()
+
+
 def delete_checkpoint(job_id: str, bucket_name: str) -> None:
     """Delete the checkpoint blob on successful completion."""
     if not bucket_name:
