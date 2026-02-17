@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 MODEL = get_gemini_model()
 APP_NAME = "luminary_research"
-MAX_CONCURRENT_STUDIES = 3
+MAX_CONCURRENT_STUDIES = 2
 MAX_CONCURRENT_QA = 3
 
 
@@ -226,8 +226,13 @@ async def execute_deep_research(
         else:
             logger.info("DEEP Phase 2: Running %d iterative studies (max concurrent: %d)", len(studies), MAX_CONCURRENT_STUDIES)
 
+        import httpx
+
         sem = asyncio.Semaphore(MAX_CONCURRENT_STUDIES)
+        deep_sem = asyncio.Semaphore(1)  # Only 1 Deep Research at a time (strict quota)
         _cp_lock = asyncio.Lock()
+        _RETRYABLE = (httpx.ConnectError, httpx.ReadTimeout, ConnectionError, OSError)
+        _MAX_STUDY_RETRIES = 2
 
         async def _study_with_sem(idx, study_dict):
             # Skip studies already completed from checkpoint
@@ -247,14 +252,15 @@ async def execute_deep_research(
                 _progress(f"Researching: {title}", step=f"study_{idx}",
                           study_idx=idx, study_status="running")
                 try:
-                    # Route complex studies to Gemini Deep Research
+                    # Route complex studies to Gemini Deep Research (serialized)
                     use_deep = should_use_deep_research(study_dict, query_analysis)
                     if use_deep:
-                        sr = await _run_deep_research_study(idx, study_dict)
+                        async with deep_sem:
+                            await asyncio.sleep(3)  # Brief pause to avoid burst rate limits
+                            sr = await _run_deep_research_study(idx, study_dict)
                         if sr.synthesis:
                             _progress(f"Completed: {title}", step=f"study_{idx}",
                                       study_idx=idx, study_status="done")
-                            # Save incrementally so this study survives instance restarts
                             result.studies[idx] = sr
                             async with _cp_lock:
                                 _checkpoint(result, "studies_partial")
@@ -271,21 +277,36 @@ async def execute_deep_research(
                         except Exception:
                             pass  # fall back to default
 
-                    sr = await run_iterative_study(
-                        study_index=idx,
-                        study=study_dict,
-                        session_service=InMemorySessionService(),
-                        model=MODEL,
-                        max_rounds=max_rounds_per_study,
-                        researcher_builder=researcher_builder,
-                    )
-                    _progress(f"Completed: {title}", step=f"study_{idx}",
-                              study_idx=idx, study_status="done")
-                    # Save incrementally so this study survives instance restarts
-                    result.studies[idx] = sr
-                    async with _cp_lock:
-                        _checkpoint(result, "studies_partial")
-                    return sr
+                    # Iterative study with retry on transient connection errors
+                    last_err = None
+                    for attempt in range(_MAX_STUDY_RETRIES + 1):
+                        try:
+                            sr = await run_iterative_study(
+                                study_index=idx,
+                                study=study_dict,
+                                session_service=InMemorySessionService(),
+                                model=MODEL,
+                                max_rounds=max_rounds_per_study,
+                                researcher_builder=researcher_builder,
+                            )
+                            _progress(f"Completed: {title}", step=f"study_{idx}",
+                                      study_idx=idx, study_status="done")
+                            result.studies[idx] = sr
+                            async with _cp_lock:
+                                _checkpoint(result, "studies_partial")
+                            return sr
+                        except _RETRYABLE as e:
+                            last_err = e
+                            if attempt < _MAX_STUDY_RETRIES:
+                                wait = 10 * (attempt + 1)
+                                logger.warning("Study %d '%s' hit %s, retrying in %ds (attempt %d/%d)",
+                                               idx, title, type(e).__name__, wait, attempt + 1, _MAX_STUDY_RETRIES)
+                                _progress(f"Retrying: {title} (connection error)", step=f"study_{idx}",
+                                          study_idx=idx, study_status="running")
+                                await asyncio.sleep(wait)
+                            else:
+                                raise last_err from e
+
                 except Exception:
                     logger.exception("Study %d '%s' failed", idx, study_dict.get("title", ""))
                     _progress(f"Failed: {title}", step=f"study_{idx}",
