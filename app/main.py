@@ -83,7 +83,7 @@ def _setup_sigterm_handler(app: Flask) -> None:
         logger.info("SIGTERM received — checkpointing running DEEP jobs")
 
         try:
-            from app.services.job_tracker import get_running_deep_jobs
+            from app.services.job_tracker import get_running_deep_jobs, JobStatus, update_job
             from app.services import gcs_client
 
             settings = app.config.get("SETTINGS")
@@ -92,6 +92,10 @@ def _setup_sigterm_handler(app: Flask) -> None:
 
             for job in deep_jobs:
                 try:
+                    # Mark in-memory so any final poll returns "failed" instead of "running"
+                    update_job(job.job_id,
+                               status=JobStatus.FAILED,
+                               error="Server shutdown during research. Resume available.")
                     # Update GCS metadata so archive shows it as interrupted
                     if bucket:
                         gcs_client.update_metadata(job.job_id, bucket, {

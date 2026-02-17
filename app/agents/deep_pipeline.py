@@ -205,17 +205,37 @@ async def execute_deep_research(
     )
 
     # ---- Phase 2 & 3: Parallel Iterative Studies ----
-    # Skip if studies already have syntheses (checkpoint resume)
-    _has_completed_studies = any(s.synthesis for s in result.studies) if result.studies else False
-    if _has_completed_studies:
+    # Pre-populate result.studies so incremental checkpoints include all slots
+    if not result.studies or len(result.studies) != len(studies):
+        result.studies = [
+            StudyResult(title=s.get("title", f"Study {i}"), angle=s.get("angle", ""))
+            for i, s in enumerate(studies)
+        ]
+
+    # Identify which studies are already done (from checkpoint)
+    completed_indices = {i for i, s in enumerate(result.studies) if s.synthesis}
+
+    if len(completed_indices) == len(studies):
         successful_studies = [s for s in result.studies if s.synthesis]
-        logger.info("DEEP Phase 2-3: Skipped (restored %d/%d studies from checkpoint)", len(successful_studies), len(result.studies))
+        logger.info("DEEP Phase 2-3: Skipped (all %d studies restored from checkpoint)", len(successful_studies))
     else:
-        logger.info("DEEP Phase 2: Running %d iterative studies (max concurrent: %d)", len(studies), MAX_CONCURRENT_STUDIES)
+        remaining = len(studies) - len(completed_indices)
+        if completed_indices:
+            logger.info("DEEP Phase 2: Resuming — %d/%d studies already done, %d remaining",
+                        len(completed_indices), len(studies), remaining)
+        else:
+            logger.info("DEEP Phase 2: Running %d iterative studies (max concurrent: %d)", len(studies), MAX_CONCURRENT_STUDIES)
 
         sem = asyncio.Semaphore(MAX_CONCURRENT_STUDIES)
+        _cp_lock = asyncio.Lock()
 
         async def _study_with_sem(idx, study_dict):
+            # Skip studies already completed from checkpoint
+            if idx in completed_indices:
+                _progress(f"Restored: {result.studies[idx].title}", step=f"study_{idx}",
+                          study_idx=idx, study_status="done")
+                return result.studies[idx]
+
             async with sem:
                 title = study_dict.get("title", f"Study {idx}")
                 role = study_dict.get("recommended_role", "general")
@@ -234,6 +254,10 @@ async def execute_deep_research(
                         if sr.synthesis:
                             _progress(f"Completed: {title}", step=f"study_{idx}",
                                       study_idx=idx, study_status="done")
+                            # Save incrementally so this study survives instance restarts
+                            result.studies[idx] = sr
+                            async with _cp_lock:
+                                _checkpoint(result, "studies_partial")
                             return sr
                         # Fall through to iterative if deep research fails
                         logger.warning("Deep Research failed for study %d, falling back to iterative", idx)
@@ -257,6 +281,10 @@ async def execute_deep_research(
                     )
                     _progress(f"Completed: {title}", step=f"study_{idx}",
                               study_idx=idx, study_status="done")
+                    # Save incrementally so this study survives instance restarts
+                    result.studies[idx] = sr
+                    async with _cp_lock:
+                        _checkpoint(result, "studies_partial")
                     return sr
                 except Exception:
                     logger.exception("Study %d '%s' failed", idx, study_dict.get("title", ""))
