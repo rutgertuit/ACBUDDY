@@ -639,7 +639,7 @@ def analyze_podcast():
 
 @ui_api_bp.route("/api/podcast/generate", methods=["POST"])
 def generate_podcast():
-    """Start podcast generation. Body: {job_id, style, host_slug?, guest_slug?, angles?, scenario?} -> 202 {podcast_job_id}."""
+    """Start podcast generation. Body: {job_id, style, host_slug?, guest_slug?, angles?, scenario?, language?, duration?} -> 202 {podcast_job_id}."""
     data = request.get_json(silent=True) or {}
     job_id = (data.get("job_id") or "").strip()
     style = (data.get("style") or "").strip()
@@ -647,6 +647,14 @@ def generate_podcast():
     guest_slug = (data.get("guest_slug") or "").strip()
     selected_angles = data.get("angles") or []
     selected_scenario = data.get("scenario") or None
+    language = (data.get("language") or "en").strip().lower()
+    duration_minutes = int(data.get("duration") or 7)
+
+    # Validate language and duration
+    if language not in ("en", "nl"):
+        language = "en"
+    if duration_minutes not in (5, 10, 15):
+        duration_minutes = 10
 
     if not job_id:
         return jsonify({"error": "job_id is required"}), 400
@@ -712,6 +720,8 @@ def generate_podcast():
                 guest_profile=guest_profile,
                 angles=selected_angles if selected_angles else None,
                 scenario=selected_scenario,
+                language=language,
+                duration_minutes=duration_minutes,
             )
             preview = script[:200].replace("\n", " ")
 
@@ -741,6 +751,7 @@ def generate_podcast():
                 speaker_voices=speaker_voices,
                 api_key=api_key,
                 on_progress=_on_progress,
+                language_code=language,
             )
 
             # Phase 3: Upload to GCS
@@ -767,6 +778,8 @@ def generate_podcast():
             gcs_client.update_metadata(job_id, bucket, {
                 "podcast_url": audio_url,
                 "podcast_style": style,
+                "podcast_language": language,
+                "podcast_duration": duration_minutes,
                 "podcast_script_url": script_url,
             })
 

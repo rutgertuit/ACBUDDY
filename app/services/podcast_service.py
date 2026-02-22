@@ -78,7 +78,7 @@ def _chunk_text(text: str, max_chars: int = _MAX_CHUNK_CHARS) -> list[str]:
     return [c for c in chunks if c]
 
 
-def _tts_v3(text: str, voice_id: str, api_key: str) -> bytes:
+def _tts_v3(text: str, voice_id: str, api_key: str, language_code: str = "en") -> bytes:
     """Generate speech for a single text segment using eleven_v3.
 
     Returns raw MP3 audio bytes. If text exceeds _MAX_CHUNK_CHARS,
@@ -90,12 +90,12 @@ def _tts_v3(text: str, voice_id: str, api_key: str) -> bytes:
 
     audio_parts: list[bytes] = []
     for chunk in chunks:
-        audio_parts.append(_tts_v3_single(chunk, voice_id, api_key))
+        audio_parts.append(_tts_v3_single(chunk, voice_id, api_key, language_code=language_code))
 
     return b"".join(audio_parts)
 
 
-def _tts_v3_single(text: str, voice_id: str, api_key: str) -> bytes:
+def _tts_v3_single(text: str, voice_id: str, api_key: str, language_code: str = "en") -> bytes:
     """Generate speech for a single chunk using eleven_v3.
 
     Voice settings tuned per ElevenLabs best practices:
@@ -107,7 +107,7 @@ def _tts_v3_single(text: str, voice_id: str, api_key: str) -> bytes:
     body = {
         "text": text,
         "model_id": "eleven_v3",
-        "language_code": "en",          # Force English — voices default to Dutch otherwise
+        "language_code": language_code,
         "voice_settings": {
             "stability": 0.5,           # Natural — recommended 0.45-0.55 for podcasts
             "similarity_boost": 0.75,   # Tight voice match — prevents accent drift on cloned voices
@@ -173,6 +173,7 @@ def create_podcast(
     speaker_voices: dict[str, str],
     api_key: str,
     on_progress=None,
+    language_code: str = "en",
 ) -> bytes:
     """Generate podcast audio from a script using ElevenLabs v3 TTS.
 
@@ -181,6 +182,7 @@ def create_podcast(
         speaker_voices: Dict mapping speaker name -> voice_id.
         api_key: ElevenLabs API key.
         on_progress: Optional callback(current_turn, total_turns) for status updates.
+        language_code: Language code for TTS — "en" or "nl".
 
     Returns:
         Combined MP3 audio bytes.
@@ -216,7 +218,7 @@ def create_podcast(
         retries = 2
         for attempt in range(retries + 1):
             try:
-                audio = _tts_v3(text, voice_id, api_key)
+                audio = _tts_v3(text, voice_id, api_key, language_code=language_code)
                 audio_segments.append(audio)
                 break
             except requests.exceptions.HTTPError as e:

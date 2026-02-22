@@ -617,6 +617,45 @@ tailwind.config = {
           </div>
         </div>
 
+        <!-- Language & Duration -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <div class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Language</div>
+            <div class="flex gap-2">
+              <label class="podcast-lang-card flex-1 cursor-pointer glass-panel rounded-lg px-3 py-2 shadow-glass border-2 border-violet-400 bg-violet-50/40 text-center transition-all">
+                <input type="radio" name="podcast-lang" value="en" class="hidden" checked>
+                <span class="text-sm font-semibold text-slate-700">EN</span>
+                <span class="text-[10px] text-slate-400 block">English</span>
+              </label>
+              <label class="podcast-lang-card flex-1 cursor-pointer glass-panel rounded-lg px-3 py-2 shadow-glass border-2 border-white/60 hover:border-violet-200 text-center transition-all">
+                <input type="radio" name="podcast-lang" value="nl" class="hidden">
+                <span class="text-sm font-semibold text-slate-700">NL</span>
+                <span class="text-[10px] text-slate-400 block">Nederlands</span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold mb-2">Duration</div>
+            <div class="flex gap-1.5">
+              <label class="podcast-dur-card flex-1 cursor-pointer glass-panel rounded-lg px-2 py-2 shadow-glass border-2 border-white/60 hover:border-violet-200 text-center transition-all">
+                <input type="radio" name="podcast-duration" value="5" class="hidden">
+                <span class="text-sm font-semibold text-slate-700">5</span>
+                <span class="text-[10px] text-slate-400 block">min</span>
+              </label>
+              <label class="podcast-dur-card flex-1 cursor-pointer glass-panel rounded-lg px-2 py-2 shadow-glass border-2 border-violet-400 bg-violet-50/40 text-center transition-all">
+                <input type="radio" name="podcast-duration" value="10" class="hidden" checked>
+                <span class="text-sm font-semibold text-slate-700">10</span>
+                <span class="text-[10px] text-slate-400 block">min</span>
+              </label>
+              <label class="podcast-dur-card flex-1 cursor-pointer glass-panel rounded-lg px-2 py-2 shadow-glass border-2 border-white/60 hover:border-violet-200 text-center transition-all">
+                <input type="radio" name="podcast-duration" value="15" class="hidden">
+                <span class="text-sm font-semibold text-slate-700">15</span>
+                <span class="text-[10px] text-slate-400 block">min</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
         <button id="podcast-generate-btn" onclick="App.submitPodcast()"
                 class="w-full py-3 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-white text-center font-semibold text-sm hover:opacity-90 transition-opacity">
           Generate Podcast
@@ -2447,6 +2486,30 @@ const App = (function() {
         hostsSection.classList.add('hidden');
       }
 
+      // Wire up language radio buttons
+      document.querySelectorAll('input[name="podcast-lang"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+          document.querySelectorAll('.podcast-lang-card').forEach(card => {
+            card.classList.remove('border-violet-400', 'bg-violet-50/40');
+            card.classList.add('border-white/60');
+          });
+          this.closest('.podcast-lang-card').classList.add('border-violet-400', 'bg-violet-50/40');
+          this.closest('.podcast-lang-card').classList.remove('border-white/60');
+        });
+      });
+
+      // Wire up duration radio buttons
+      document.querySelectorAll('input[name="podcast-duration"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+          document.querySelectorAll('.podcast-dur-card').forEach(card => {
+            card.classList.remove('border-violet-400', 'bg-violet-50/40');
+            card.classList.add('border-white/60');
+          });
+          this.closest('.podcast-dur-card').classList.add('border-violet-400', 'bg-violet-50/40');
+          this.closest('.podcast-dur-card').classList.remove('border-white/60');
+        });
+      });
+
       document.getElementById('podcast-loading').classList.add('hidden');
       document.getElementById('podcast-styles').classList.remove('hidden');
     } catch(e) {
@@ -2533,6 +2596,12 @@ const App = (function() {
     const hostSlug = hostSelect ? hostSelect.value : '';
     const guestSlug = guestSelect ? guestSelect.value : '';
 
+    // Collect language and duration
+    const langRadio = document.querySelector('input[name="podcast-lang"]:checked');
+    const durRadio = document.querySelector('input[name="podcast-duration"]:checked');
+    const language = langRadio ? langRadio.value : 'en';
+    const duration = durRadio ? parseInt(durRadio.value) : 10;
+
     try {
       const res = await fetch('/api/podcast/generate', {
         method: 'POST',
@@ -2544,6 +2613,8 @@ const App = (function() {
           guest_slug: guestSlug,
           angles: selectedAngles,
           scenario: podcastSelectedScenario || null,
+          language: language,
+          duration: duration,
         })
       });
       const data = await res.json();

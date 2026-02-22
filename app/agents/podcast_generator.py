@@ -255,6 +255,8 @@ def generate_podcast_script(
     guest_profile: dict | None = None,
     angles: list[str] | None = None,
     scenario: dict | None = None,
+    language: str = "en",
+    duration_minutes: int = 7,
 ) -> str:
     """Generate a full podcast script in the selected style.
 
@@ -266,9 +268,11 @@ def generate_podcast_script(
         guest_profile: Optional dict with {name, personality} for the guest speaker.
         angles: Optional list of angle titles to focus the discussion on.
         scenario: Optional dict with {title, description, host_angle, guest_angle} creative framing.
+        language: Language code — "en" (English) or "nl" (Dutch).
+        duration_minutes: Target duration in minutes (5, 10, or 15).
 
     Returns:
-        Plain text podcast script (~2000-4000 words).
+        Plain text podcast script.
     """
     from google.genai.types import GenerateContentConfig, ThinkingConfig
 
@@ -317,6 +321,29 @@ def generate_podcast_script(
             "The concept should drive the dynamic — it's not just a label, it shapes every exchange."
         )
 
+    # Duration → word count and turn targets
+    # ~150 words/minute spoken pace
+    duration_config = {
+        5:  {"words": "1200-1800", "turns": "25-35", "spoken": "about five minutes"},
+        10: {"words": "2500-4000", "turns": "45-65", "spoken": "about ten minutes"},
+        15: {"words": "4000-6000", "turns": "65-90", "spoken": "about fifteen minutes"},
+    }
+    dur = duration_config.get(duration_minutes, duration_config[10])
+
+    # Language instruction
+    language_block = ""
+    if language == "nl":
+        language_block = """
+
+LANGUAGE: Write the ENTIRE script in Dutch (Nederlands). All dialogue, reactions, audio tags descriptions — everything in natural spoken Dutch.
+- Use informal, conversational Dutch — not formal written Dutch.
+- Contractions and colloquial expressions are encouraged: "'t is", "d'r", "nou ja", "weet je", "kijk".
+- Natural Dutch filler words: "nou", "zeg maar", "eigenlijk", "toch", "hè", "ja kijk".
+- Keep speaker names unchanged (they're proper nouns).
+- Audio tags stay in English (e.g., [laughs], [excited]) — the TTS engine reads those.
+- Data normalization: spell out numbers in Dutch: "drieëntwintig procent", "ongeveer twee miljard".
+"""
+
     style_prompts = {
         "executive": f"""Write a podcast script as a professional briefing between two senior analysts ({speaker_a} and {speaker_b}).
 - Open with a concise hook about why this research matters NOW
@@ -348,7 +375,7 @@ RESEARCH CONTENT:
 {content}
 
 STYLE INSTRUCTIONS:
-{style_prompts.get(style, style_prompts["curious"])}{personality_block}{angles_block}{scenario_block}
+{style_prompts.get(style, style_prompts["curious"])}{personality_block}{angles_block}{scenario_block}{language_block}
 
 WRITING FOR THE EAR — THIS IS CRITICAL:
 This script will be read by an AI TTS engine. The naturalness of the output depends entirely on HOW you write.
@@ -383,7 +410,7 @@ This script will be read by an AI TTS engine. The naturalness of the output depe
 
 5. CONVERSATION DYNAMICS:
    - Turns must be SHORT: 1-3 sentences each, max 4 sentences for a key point. NO monologues.
-   - Aim for 40-60 turns total. This is a rapid back-and-forth conversation.
+   - Aim for {dur["turns"]} turns total. This is a rapid back-and-forth conversation.
    - Speakers REACT to each other: "Wait, say that again—", "Hold on.", "Okay but—", "See, that's exactly my point."
    - Include interruptions: one speaker cuts in with a dash while the other is mid-thought.
    - Vary turn length: mix very short reactions ("Right.") with slightly longer explanations (2-3 sentences).
@@ -407,7 +434,7 @@ GOOD example (spoken, reactive, alive, with disfluencies and normalization):
 
 FORMAT RULES:
 - Use speaker labels "{speaker_a}:" and "{speaker_b}:" at the start of each turn
-- Aim for 2000-4000 words across 40-60 short turns (five to seven minutes when spoken)
+- Aim for {dur["words"]} words across {dur["turns"]} short turns ({dur["spoken"]} when spoken)
 - Reference specific findings, numbers, and sources from the research
 - CRITICAL: Each speaker must sound unmistakably like their character. A reader should be able to tell who's talking WITHOUT labels.
 
@@ -425,12 +452,15 @@ The [interrupting] and [overlapping] tags prevent robotic "ping-pong" pauses bet
 
 Write the script now:"""
 
+    # Scale output tokens with duration (5min ~4k, 10min ~8k, 15min ~12k)
+    output_tokens = {5: 4000, 10: 8000, 15: 12000}.get(duration_minutes, 8000)
+
     try:
         resp = client.models.generate_content(
             model="gemini-3-pro-preview",
             config=GenerateContentConfig(
                 temperature=0.8,
-                max_output_tokens=8000,
+                max_output_tokens=output_tokens,
                 thinking_config=ThinkingConfig(thinking_budget=10000),
             ),
             contents=prompt,
@@ -438,9 +468,9 @@ Write the script now:"""
         script = resp.text or ""
         # Strip markdown fences that Gemini often wraps output in
         script = _strip_markdown_fences(script)
-        logger.info("Podcast script generated: style=%s, host=%s, guest=%s, angles=%d, scenario=%s, length=%d chars",
+        logger.info("Podcast script generated: style=%s, host=%s, guest=%s, angles=%d, scenario=%s, lang=%s, duration=%dmin, length=%d chars",
                      style, speaker_a, speaker_b, len(angles or []),
-                     (scenario or {}).get("title", "none"), len(script))
+                     (scenario or {}).get("title", "none"), language, duration_minutes, len(script))
         return script
     except Exception:
         logger.exception("Podcast script generation failed")
